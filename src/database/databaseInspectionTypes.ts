@@ -22,33 +22,87 @@ export interface DatabaseColumnInspection {
       DatabaseColumnInspection[];
   }
   
-  export interface ItemTableInspection {
+  export interface KeyPrefixInspection {
+    prefix: string;
+  
+    count: number;
+  }
+  
+  export interface JsonFieldNameInspection {
+    name: string;
+  
+    count: number;
+  }
+  
+  export interface RecordSampleInspection {
+    key: string;
+  
+    storageType: string;
+  
+    byteLength: number;
+  
+    valueSha256: string;
+  
+    encodingHint: string;
+  
+    isUtf8: boolean;
+  
+    isJson: boolean;
+  
+    jsonTopLevelType:
+      string | null;
+  
+    jsonSchemaPaths:
+      string[];
+  
+    firstBytesHex:
+      string | null;
+  }
+  
+  export interface RecordFamilyInspection {
+    name: string;
+  
+    matchMode:
+      "exact" | "like";
+  
+    pattern: string;
+  
+    rowCount: number;
+  
+    utf8RecordCount: number;
+  
+    jsonRecordCount: number;
+  
+    topJsonFieldNames:
+      JsonFieldNameInspection[];
+  
+    samples:
+      RecordSampleInspection[];
+  }
+  
+  export interface KeyValueTableInspection {
+    name: string;
+  
     columns:
       DatabaseColumnInspection[];
   
     rowCount: number;
   
-    keySamples: string[];
-  
-    conversationKeySamples:
-      string[];
-  
     patternCounts: {
-      composer?: number;
-  
-      bubbleId?: number;
-  
-      checkpointId?: number;
-  
-      messageRequestContext?: number;
-  
-      conversation?: number;
-  
-      chat?: number;
-  
       [patternName: string]:
         number | undefined;
     };
+  
+    valueStorageCounts: {
+      [storageType: string]:
+        number | undefined;
+    };
+  
+    topKeyPrefixes:
+      KeyPrefixInspection[];
+  
+    recordFamilies:
+      RecordFamilyInspection[];
   }
   
   export interface CursorDatabaseInspection {
@@ -63,8 +117,8 @@ export interface DatabaseColumnInspection {
     tables:
       DatabaseTableInspection[];
   
-    itemTable:
-      ItemTableInspection | null;
+    keyValueTables:
+      KeyValueTableInspection[];
   }
   
   export interface PythonRuntime {

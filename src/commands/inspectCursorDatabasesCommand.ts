@@ -5,7 +5,10 @@ import type {
 } from "../cursor/cursorStorageLocator";
 
 import type {
-  CursorDatabaseInspection
+  CursorDatabaseInspection,
+  KeyValueTableInspection,
+  RecordFamilyInspection,
+  RecordSampleInspection
 } from "../database/databaseInspectionTypes";
 
 import type {
@@ -39,7 +42,7 @@ export class InspectCursorDatabasesCommand {
     this.logger.show();
 
     this.logger.info(
-      "Inspecting Cursor databases in read-only mode..."
+      "Inspecting Cursor database record families in read-only mode..."
     );
 
     try {
@@ -47,24 +50,20 @@ export class InspectCursorDatabasesCommand {
         await this.projectInspector.inspect();
 
       if (!project.cursorWorkspace) {
+        this.logger.info(
+          "No matching Cursor workspace database was found."
+        );
+
         await vscode.window
           .showWarningMessage(
             "No Cursor workspace database was matched to the selected project."
           );
-
-        this.logger.info(
-          "Database inspection stopped because no matching project workspace database was found."
-        );
 
         return;
       }
 
       const storage =
         await this.storageLocator.inspect();
-
-      this.logger.info(
-        "Inspecting global Cursor database..."
-      );
 
       const globalInspection =
         await this.databaseInspector.inspect(
@@ -74,10 +73,6 @@ export class InspectCursorDatabasesCommand {
       this.logDatabaseInspection(
         "GLOBAL CURSOR DATABASE",
         globalInspection
-      );
-
-      this.logger.info(
-        "Inspecting current project workspace database..."
       );
 
       const workspaceInspection =
@@ -93,7 +88,7 @@ export class InspectCursorDatabasesCommand {
 
       await vscode.window
         .showInformationMessage(
-          "Cursor databases inspected successfully in read-only mode."
+          "Cursor record families inspected successfully in read-only mode."
         );
     } catch (error) {
       if (
@@ -143,82 +138,194 @@ export class InspectCursorDatabasesCommand {
       `Journal mode: ${inspection.journalMode}`
     );
 
-    this.logger.info(
-      `Tables/views found: ${inspection.tables.length}`
-    );
-
     for (
       const table of
-      inspection.tables
+      inspection.keyValueTables
     ) {
-      const columns =
-        table.columns
-          .map(
-            (column) =>
-              `${column.name}:${column.type || "untyped"}`
-          )
-          .join(", ");
-
-      this.logger.info(
-        `${table.type}: ${table.name}`
+      this.logKeyValueTable(
+        table
       );
-
-      if (columns) {
-        this.logger.info(
-          `  Columns: ${columns}`
-        );
-      }
     }
+  }
 
-    if (!inspection.itemTable) {
-      this.logger.info(
-        "ItemTable was not found."
-      );
-
-      return;
-    }
+  private logKeyValueTable(
+    table: KeyValueTableInspection
+  ): void {
+    this.logger.info(
+      "----------------------------------------"
+    );
 
     this.logger.info(
-      `ItemTable rows: ${inspection.itemTable.rowCount}`
+      `KEY-VALUE TABLE: ${table.name}`
+    );
+
+    this.logger.info(
+      `Rows: ${table.rowCount}`
     );
 
     this.logger.info(
       "Conversation-related key counts:"
     );
 
-    const patternEntries =
-      Object.entries(
-        inspection.itemTable
-          .patternCounts
-      );
-
     for (
       const [
         patternName,
         count
-      ] of patternEntries
+      ] of Object.entries(
+        table.patternCounts
+      )
     ) {
       this.logger.info(
         `  ${patternName}: ${count ?? 0}`
       );
     }
 
+    for (
+      const family of
+      table.recordFamilies
+    ) {
+      if (family.rowCount === 0) {
+        continue;
+      }
+
+      this.logRecordFamily(
+        family
+      );
+    }
+  }
+
+  private logRecordFamily(
+    family: RecordFamilyInspection
+  ): void {
     this.logger.info(
-      `Conversation-related key samples: ${
-        inspection.itemTable
-          .conversationKeySamples
-          .length
-      }`
+      "........................................"
+    );
+
+    this.logger.info(
+      `RECORD FAMILY: ${family.name}`
+    );
+
+    this.logger.info(
+      `Pattern: ${family.pattern}`
+    );
+
+    this.logger.info(
+      `Rows: ${family.rowCount}`
+    );
+
+    this.logger.info(
+      `UTF-8 records: ${family.utf8RecordCount}`
+    );
+
+    this.logger.info(
+      `JSON records: ${family.jsonRecordCount}`
+    );
+
+    if (
+      family.topJsonFieldNames
+        .length > 0
+    ) {
+      const fieldSummary =
+        family.topJsonFieldNames
+          .slice(0, 25)
+          .map(
+            (field) =>
+              `${field.name}:${field.count}`
+          )
+          .join(", ");
+
+      this.logger.info(
+        `Top JSON field names: ${fieldSummary}`
+      );
+    }
+
+    this.logger.info(
+      `Samples inspected: ${family.samples.length}`
     );
 
     for (
-      const key of
-      inspection.itemTable
-        .conversationKeySamples
+      const sample of
+      family.samples
+    ) {
+      this.logRecordSample(
+        sample
+      );
+    }
+  }
+
+  private logRecordSample(
+    sample: RecordSampleInspection
+  ): void {
+    this.logger.info(
+      `  Key: ${sample.key}`
+    );
+
+    this.logger.info(
+      `    Storage: ${sample.storageType}`
+    );
+
+    this.logger.info(
+      `    Size: ${this.formatBytes(
+        sample.byteLength
+      )}`
+    );
+
+    this.logger.info(
+      `    Encoding: ${sample.encodingHint}`
+    );
+
+    this.logger.info(
+      `    SHA-256: ${sample.valueSha256.slice(
+        0,
+        16
+      )}...`
+    );
+
+    if (sample.firstBytesHex) {
+      this.logger.info(
+        `    First bytes: ${sample.firstBytesHex}`
+      );
+    }
+
+    if (
+      sample.jsonTopLevelType
     ) {
       this.logger.info(
-        `  Key: ${key}`
+        `    JSON type: ${sample.jsonTopLevelType}`
       );
+    }
+
+    if (
+      sample.jsonSchemaPaths
+        .length > 0
+    ) {
+      this.logger.info(
+        "    JSON schema:"
+      );
+
+      for (
+        const schemaPath of
+        sample.jsonSchemaPaths.slice(
+          0,
+          60
+        )
+      ) {
+        this.logger.info(
+          `      ${schemaPath}`
+        );
+      }
+
+      if (
+        sample.jsonSchemaPaths
+          .length > 60
+      ) {
+        this.logger.info(
+          `      ... ${
+            sample.jsonSchemaPaths.length -
+            60
+          } more schema paths`
+        );
+      }
     }
   }
 
@@ -247,12 +354,9 @@ export class InspectCursorDatabasesCommand {
       )} MB`;
     }
 
-    const gigabytes =
-      megabytes / 1024;
-
-    return `${gigabytes.toFixed(
-      2
-    )} GB`;
+    return `${(
+      megabytes / 1024
+    ).toFixed(2)} GB`;
   }
 
   private isCancellationError(
