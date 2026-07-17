@@ -1,4 +1,5 @@
 import * as path from "node:path";
+
 import * as vscode from "vscode";
 
 import type {
@@ -13,8 +14,17 @@ import type {
   CurrentProjectInspection
 } from "./currentProjectTypes";
 
+import type {
+  ProjectIdentity
+} from "./projectIdentityTypes";
+
+import type {
+  ProjectIdentityService
+} from "./projectIdentityService";
+
 interface SelectedProject {
   name: string;
+
   uri: vscode.Uri;
 }
 
@@ -30,7 +40,10 @@ export class CurrentProjectInspector {
       CursorStorageLocator,
 
     private readonly gitService:
-      GitService
+      GitService,
+
+    private readonly projectIdentityService:
+      ProjectIdentityService
   ) {}
 
   public async inspect():
@@ -69,6 +82,11 @@ export class CurrentProjectInspector {
         projectPath
       );
 
+    const identityResult =
+      this.createProjectIdentity(
+        git.remoteUrl
+      );
+
     return {
       workspaceFolderName:
         selectedProject.name,
@@ -77,9 +95,43 @@ export class CurrentProjectInspector {
         selectedProject.uri.toString(),
 
       projectPath,
+
       cursorWorkspace,
-      git
+
+      git,
+
+      projectIdentity:
+        identityResult.projectIdentity,
+
+      projectIdentityError:
+        identityResult.error
     };
+  }
+
+  private createProjectIdentity(
+    remoteUrl: string | undefined
+  ): {
+    projectIdentity?: ProjectIdentity;
+    error?: string;
+  } {
+    if (!remoteUrl) {
+      return {};
+    }
+
+    try {
+      return {
+        projectIdentity:
+          this.projectIdentityService
+            .create(remoteUrl)
+      };
+    } catch (error) {
+      return {
+        error:
+          error instanceof Error
+            ? error.message
+            : String(error)
+      };
+    }
   }
 
   private async selectProject():
@@ -167,7 +219,9 @@ export class CurrentProjectInspector {
           "Select a project to inspect",
 
         canSelectFiles: false,
+
         canSelectFolders: true,
+
         canSelectMany: false,
 
         openLabel:

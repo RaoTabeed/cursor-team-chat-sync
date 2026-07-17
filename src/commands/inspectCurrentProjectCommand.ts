@@ -35,15 +35,11 @@ export class InspectCurrentProjectCommand {
       this.logInspectionResult(result);
 
       const summary =
-        result.git.isRepository
-          ? `Project inspected. Branch: ${
-              result.git.branch ??
-              "unknown"
-            }, changed files: ${
-              result.git
-                .changedFileCount ?? 0
-            }.`
-          : "Project inspected. It is not currently a Git repository.";
+        result.projectIdentity
+          ? `Project inspected. Stable ID: ${result.projectIdentity.projectId.slice(0, 12)}...`
+          : result.git.isRepository
+            ? "Project inspected, but no usable origin remote is configured."
+            : "Project inspected. It is not currently a Git repository.";
 
       await vscode.window
         .showInformationMessage(
@@ -125,6 +121,8 @@ export class InspectCurrentProjectCommand {
       this.logGitResult(result);
     }
 
+    this.logProjectIdentity(result);
+
     if (
       result.git.inspectionError
     ) {
@@ -146,9 +144,10 @@ export class InspectCurrentProjectCommand {
     );
 
     this.logger.info(
-      `Git remote: ${
-        result.git.remoteUrl ??
-        "No origin remote configured"
+      `Git origin configured: ${
+        result.git.remoteUrl
+          ? "Yes"
+          : "No"
       }`
     );
 
@@ -179,6 +178,35 @@ export class InspectCurrentProjectCommand {
         result.git.changedFileCount ?? 0
       }`
     );
+  }
+
+  private logProjectIdentity(
+    result: CurrentProjectInspection
+  ): void {
+    if (result.projectIdentity) {
+      this.logger.info(
+        `Canonical Git remote: ${result.projectIdentity.canonicalRemote}`
+      );
+
+      this.logger.info(
+        `Stable project ID: ${result.projectIdentity.projectId}`
+      );
+
+      return;
+    }
+
+    this.logger.info(
+      "Stable project ID: Not available"
+    );
+
+    if (
+      result.projectIdentityError
+    ) {
+      this.logger.error(
+        "Project identity generation failed.",
+        result.projectIdentityError
+      );
+    }
   }
 
   private isCancellationError(

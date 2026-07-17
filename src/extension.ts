@@ -28,6 +28,10 @@ import {
   CurrentProjectInspector
 } from "./projects/currentProjectInspector";
 
+import {
+  ProjectIdentityService
+} from "./projects/projectIdentityService";
+
 export function activate(
   context: vscode.ExtensionContext
 ): void {
@@ -40,10 +44,14 @@ export function activate(
   const gitService =
     new GitService();
 
+  const projectIdentityService =
+    new ProjectIdentityService();
+
   const currentProjectInspector =
     new CurrentProjectInspector(
       storageLocator,
-      gitService
+      gitService,
+      projectIdentityService
     );
 
   const inspectStorageCommand =

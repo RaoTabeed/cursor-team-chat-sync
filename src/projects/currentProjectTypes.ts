@@ -6,9 +6,15 @@ import type {
     GitRepositoryInspection
   } from "../git/gitTypes";
   
+  import type {
+    ProjectIdentity
+  } from "./projectIdentityTypes";
+  
   export interface CurrentProjectInspection {
     workspaceFolderName: string;
+  
     workspaceFolderUri: string;
+  
     projectPath: string;
   
     cursorWorkspace?:
@@ -16,4 +22,9 @@ import type {
   
     git:
       GitRepositoryInspection;
+  
+    projectIdentity?:
+      ProjectIdentity;
+  
+    projectIdentityError?: string;
   }
