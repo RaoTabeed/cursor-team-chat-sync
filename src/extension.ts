@@ -5,6 +5,10 @@ import {
 } from "./commands/inspectCurrentProjectCommand";
 
 import {
+  InspectCursorDatabasesCommand
+} from "./commands/inspectCursorDatabasesCommand";
+
+import {
   InspectCursorStorageCommand
 } from "./commands/inspectCursorStorageCommand";
 
@@ -15,6 +19,10 @@ import {
 import {
   CursorStorageLocator
 } from "./cursor/cursorStorageLocator";
+
+import {
+  CursorDatabaseInspectorService
+} from "./database/cursorDatabaseInspectorService";
 
 import {
   GitService
@@ -47,6 +55,11 @@ export function activate(
   const projectIdentityService =
     new ProjectIdentityService();
 
+  const databaseInspector =
+    new CursorDatabaseInspectorService(
+      context.extensionPath
+    );
+
   const currentProjectInspector =
     new CurrentProjectInspector(
       storageLocator,
@@ -66,6 +79,14 @@ export function activate(
       logger
     );
 
+  const inspectCursorDatabasesCommand =
+    new InspectCursorDatabasesCommand(
+      currentProjectInspector,
+      storageLocator,
+      databaseInspector,
+      logger
+    );
+
   context.subscriptions.push(
     logger,
 
@@ -79,6 +100,14 @@ export function activate(
       COMMANDS.inspectCurrentProject,
       () =>
         inspectCurrentProjectCommand
+          .execute()
+    ),
+
+    vscode.commands.registerCommand(
+      COMMANDS
+        .inspectCurrentProjectDatabases,
+      () =>
+        inspectCursorDatabasesCommand
           .execute()
     )
   );

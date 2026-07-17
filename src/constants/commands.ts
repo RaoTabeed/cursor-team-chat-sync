@@ -3,5 +3,8 @@ export const COMMANDS = {
     "cursorTeamChatSync.inspectStorage",
 
   inspectCurrentProject:
-    "cursorTeamChatSync.inspectCurrentProject"
+    "cursorTeamChatSync.inspectCurrentProject",
+
+  inspectCurrentProjectDatabases:
+    "cursorTeamChatSync.inspectCurrentProjectDatabases"
 } as const;

@@ -14,17 +14,21 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
-    "commands": [
-      {
-        "command": "cursorTeamChatSync.inspectStorage",
-        "title": "Cursor Team Chat Sync: Inspect Local Cursor Storage"
-      },
-      {
-        "command": "cursorTeamChatSync.inspectCurrentProject",
-        "title": "Cursor Team Chat Sync: Inspect Current Project"
-      }
-    ]
-  },
+  "commands": [
+    {
+      "command": "cursorTeamChatSync.inspectStorage",
+      "title": "Cursor Team Chat Sync: Inspect Local Cursor Storage"
+    },
+    {
+      "command": "cursorTeamChatSync.inspectCurrentProject",
+      "title": "Cursor Team Chat Sync: Inspect Current Project"
+    },
+    {
+      "command": "cursorTeamChatSync.inspectCurrentProjectDatabases",
+      "title": "Cursor Team Chat Sync: Inspect Current Project Databases"
+    }
+  ]
+},
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc --watch -p ./",
