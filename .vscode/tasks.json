@@ -2,19 +2,17 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "npm: compile",
-      "type": "shell",
-      "command": "npm run compile",
-      "problemMatcher": "$tsc",
+      "type": "npm",
+      "script": "compile",
+      "problemMatcher": [
+        "$tsc"
+      ],
       "group": {
         "kind": "build",
         "isDefault": true
       },
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated",
-        "clear": true
-      }
+      "label": "npm: compile",
+      "detail": "Compile the Cursor Team Chat Sync extension"
     }
   ]
 }

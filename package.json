@@ -26,6 +26,26 @@
     {
       "command": "cursorTeamChatSync.inspectCurrentProjectDatabases",
       "title": "Cursor Team Chat Sync: Inspect Current Project Databases"
+    },
+    {
+      "command": "cursorTeamChatSync.indexProjectConversations",
+      "title": "Cursor Team Chat Sync: Index Project Conversations"
+    },
+    {
+      "command": "cursorTeamChatSync.traceProjectConversationStorage",
+      "title": "Cursor Team Chat Sync: Trace Project Conversation Storage"
+    },
+    {
+      "command": "cursorTeamChatSync.buildConversationBundleManifest",
+      "title": "Cursor Team Chat Sync: Build Conversation Bundle Manifest"
+    },
+    {
+      "command": "cursorTeamChatSync.exportConversationBundle",
+      "title": "Cursor Team Chat Sync: Export Exact Conversation Bundle"
+    },
+    {
+      "command": "cursorTeamChatSync.exportEncryptedConversationBundle",
+      "title": "Cursor Team Chat Sync: Export Encrypted Conversation Bundle"
     }
   ]
 },
