@@ -1,0 +1,38 @@
+{
+  "name": "cursor-team-chat-sync",
+  "displayName": "Cursor Team Chat Sync",
+  "description": "Share project-specific Cursor Agent conversations safely with authorized team members.",
+  "version": "0.0.1",
+  "publisher": "rmt-dev",
+  "private": true,
+  "type": "commonjs",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "cursorTeamChatSync.inspectStorage",
+        "title": "Cursor Team Chat Sync: Inspect Local Cursor Storage"
+      },
+      {
+        "command": "cursorTeamChatSync.inspectCurrentProject",
+        "title": "Cursor Team Chat Sync: Inspect Current Project"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc --watch -p ./",
+    "check": "tsc --noEmit -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "20.17.0",
+    "@types/vscode": "1.85.0",
+    "typescript": "5.9.3"
+  }
+}

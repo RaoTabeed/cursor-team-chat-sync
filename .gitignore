@@ -1,0 +1,25 @@
+# Installed npm dependencies
+node_modules/
+
+# Compiled JavaScript
+out/
+
+# Packaged extension files
+*.vsix
+
+# Test and coverage output
+coverage/
+.nyc_output/
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+
+# Environment and secret files
+.env
+.env.*
+!.env.example
+
+# Temporary logs
+*.log
+npm-debug.log*
