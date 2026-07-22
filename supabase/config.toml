@@ -1,0 +1,4 @@
+project_id = "cursor-team-chat-sync"
+
+[functions.cursor-sync-api]
+verify_jwt = false

@@ -1,8 +1,34 @@
+import * as path from "node:path";
+
 import * as vscode from "vscode";
+
+import {
+  CloudProjectDescriptorService
+} from "./cloud/cloudProjectDescriptorService";
+
+import {
+  CloudVaultCredentialStore
+} from "./cloud/cloudVaultCredentialStore";
+
+import {
+  CursorCloudStorageService
+} from "./cloud/cursorCloudStorageService";
+
+import {
+  CursorCloudSyncApiService
+} from "./cloud/cursorCloudSyncApiService";
+
+import {
+  SupabaseConfigService
+} from "./cloud/supabaseConfigService";
 
 import {
   BuildConversationBundleManifestCommand
 } from "./commands/buildConversationBundleManifestCommand";
+
+import {
+  CopySavedSyncKeyCommand
+} from "./commands/copySavedSyncKeyCommand";
 
 import {
   ExportConversationBundleCommand
@@ -11,6 +37,14 @@ import {
 import {
   ExportEncryptedConversationBundleCommand
 } from "./commands/exportEncryptedConversationBundleCommand";
+
+import {
+  ImportChatsFromCloudCommand
+} from "./commands/importChatsFromCloudCommand";
+
+import {
+  ImportEncryptedConversationBundleCommand
+} from "./commands/importEncryptedConversationBundleCommand";
 
 import {
   IndexProjectConversationsCommand
@@ -29,8 +63,20 @@ import {
 } from "./commands/inspectCursorStorageCommand";
 
 import {
+  ManageCloudBundlesCommand
+} from "./commands/manageCloudBundlesCommand";
+
+import {
   TraceProjectConversationStorageCommand
 } from "./commands/traceProjectConversationStorageCommand";
+
+import {
+  UploadAllChatsToCloudCommand
+} from "./commands/uploadAllChatsToCloudCommand";
+
+import {
+  ValidateEncryptedConversationBundleCommand
+} from "./commands/validateEncryptedConversationBundleCommand";
 
 import {
   COMMANDS
@@ -47,6 +93,10 @@ import {
 import {
   CursorSyncKeyService
 } from "./crypto/cursorSyncKeyService";
+
+import {
+  EncryptedBundleDecryptionService
+} from "./crypto/encryptedBundleDecryptionService";
 
 import {
   EncryptedBundleService
@@ -81,6 +131,22 @@ import {
 } from "./git/gitService";
 
 import {
+  ConversationImportJobService
+} from "./import/conversationImportJobService";
+
+import {
+  ConversationImportResultReporter
+} from "./import/conversationImportResultReporter";
+
+import {
+  ConversationImportValidationService
+} from "./import/conversationImportValidationService";
+
+import {
+  ImportValidationReportWriterService
+} from "./import/importValidationReportWriterService";
+
+import {
   OutputLogger
 } from "./logging/outputLogger";
 
@@ -102,6 +168,10 @@ export function activate(
   const logger =
     new OutputLogger();
 
+  /*
+   * Core Cursor storage and project services.
+   */
+
   const storageLocator =
     new CursorStorageLocator();
 
@@ -110,6 +180,17 @@ export function activate(
 
   const projectIdentityService =
     new ProjectIdentityService();
+
+  const currentProjectInspector =
+    new CurrentProjectInspector(
+      storageLocator,
+      gitService,
+      projectIdentityService
+    );
+
+  /*
+   * Python runtime and database inspection services.
+   */
 
   const pythonRunner =
     new PythonJsonScriptRunner(
@@ -131,6 +212,10 @@ export function activate(
       pythonRunner
     );
 
+  /*
+   * Conversation bundle creation services.
+   */
+
   const conversationBundleManifestService =
     new ConversationBundleManifestService(
       pythonRunner
@@ -147,21 +232,82 @@ export function activate(
       context.globalStorageUri.fsPath
     );
 
+  /*
+   * Encryption and Sync Key services.
+   */
+
   const cursorSyncKeyService =
     new CursorSyncKeyService();
 
   const encryptedBundleService =
     new EncryptedBundleService();
 
+  const encryptedBundleDecryptionService =
+    new EncryptedBundleDecryptionService(
+      path.join(
+        context.globalStorageUri.fsPath,
+        "import-validation",
+        "temporary"
+      )
+    );
+
   const syncKeyRecoveryFileService =
     new SyncKeyRecoveryFileService();
 
-  const currentProjectInspector =
-    new CurrentProjectInspector(
-      storageLocator,
-      gitService,
-      projectIdentityService
+  /*
+   * Import validation and transactional import services.
+   */
+
+  const conversationImportValidationService =
+    new ConversationImportValidationService(
+      pythonRunner
     );
+
+  const importValidationReportWriterService =
+    new ImportValidationReportWriterService(
+      context.globalStorageUri.fsPath
+    );
+
+  const conversationImportJobService =
+    new ConversationImportJobService(
+      context.extensionPath,
+      context.globalStorageUri.fsPath
+    );
+
+  const conversationImportResultReporter =
+    new ConversationImportResultReporter(
+      conversationImportJobService,
+      logger
+    );
+
+  /*
+   * Supabase cloud services.
+   */
+
+  const cloudProjectDescriptorService =
+    new CloudProjectDescriptorService();
+
+  const supabaseConfigService =
+    new SupabaseConfigService();
+
+  const cursorCloudSyncApiService =
+    new CursorCloudSyncApiService(
+      supabaseConfigService
+    );
+
+  const cursorCloudStorageService =
+    new CursorCloudStorageService(
+      supabaseConfigService
+    );
+
+  const cloudVaultCredentialStore =
+    new CloudVaultCredentialStore(
+      context.secrets
+    );
+
+  /*
+   * Inspection commands.
+   */
 
   const inspectStorageCommand =
     new InspectCursorStorageCommand(
@@ -199,6 +345,10 @@ export function activate(
       logger
     );
 
+  /*
+   * Local bundle commands.
+   */
+
   const buildConversationBundleManifestCommand =
     new BuildConversationBundleManifestCommand(
       currentProjectInspector,
@@ -227,13 +377,101 @@ export function activate(
       logger
     );
 
+  /*
+   * Local validation and import commands.
+   */
+
+  const validateEncryptedConversationBundleCommand =
+    new ValidateEncryptedConversationBundleCommand(
+      currentProjectInspector,
+      storageLocator,
+      cursorSyncKeyService,
+      encryptedBundleDecryptionService,
+      conversationImportValidationService,
+      importValidationReportWriterService,
+      logger
+    );
+
+  const importEncryptedConversationBundleCommand =
+    new ImportEncryptedConversationBundleCommand(
+      currentProjectInspector,
+      storageLocator,
+      cursorSyncKeyService,
+      encryptedBundleDecryptionService,
+      conversationImportValidationService,
+      conversationImportJobService,
+      logger
+    );
+
+  /*
+   * Cloud commands.
+   */
+
+  const uploadAllChatsToCloudCommand =
+    new UploadAllChatsToCloudCommand(
+      currentProjectInspector,
+      storageLocator,
+      cloudProjectDescriptorService,
+      conversationBundleExportService,
+      cursorSyncKeyService,
+      encryptedBundleService,
+      cursorCloudSyncApiService,
+      cursorCloudStorageService,
+      cloudVaultCredentialStore,
+      syncKeyRecoveryFileService,
+      logger
+    );
+
+  const importChatsFromCloudCommand =
+    new ImportChatsFromCloudCommand(
+      currentProjectInspector,
+      storageLocator,
+      cloudProjectDescriptorService,
+      cursorSyncKeyService,
+      cloudVaultCredentialStore,
+      cursorCloudSyncApiService,
+      cursorCloudStorageService,
+      encryptedBundleDecryptionService,
+      conversationImportValidationService,
+      conversationImportJobService,
+      path.join(
+        context.globalStorageUri.fsPath,
+        "cloud-downloads"
+      ),
+      logger
+    );
+
+  const manageCloudBundlesCommand =
+    new ManageCloudBundlesCommand(
+      currentProjectInspector,
+      cloudProjectDescriptorService,
+      cursorSyncKeyService,
+      cloudVaultCredentialStore,
+      cursorCloudSyncApiService,
+      logger
+    );
+
+  const copySavedSyncKeyCommand =
+    new CopySavedSyncKeyCommand(
+      currentProjectInspector,
+      cloudProjectDescriptorService,
+      cloudVaultCredentialStore,
+      cursorSyncKeyService,
+      logger
+    );
+
+  /*
+   * Register every extension command.
+   */
+
   context.subscriptions.push(
     logger,
 
     vscode.commands.registerCommand(
       COMMANDS.inspectStorage,
       () =>
-        inspectStorageCommand.execute()
+        inspectStorageCommand
+          .execute()
     ),
 
     vscode.commands.registerCommand(
@@ -244,50 +482,86 @@ export function activate(
     ),
 
     vscode.commands.registerCommand(
-      COMMANDS
-        .inspectCurrentProjectDatabases,
+      COMMANDS.inspectCurrentProjectDatabases,
       () =>
         inspectCursorDatabasesCommand
           .execute()
     ),
 
     vscode.commands.registerCommand(
-      COMMANDS
-        .indexProjectConversations,
+      COMMANDS.indexProjectConversations,
       () =>
         indexProjectConversationsCommand
           .execute()
     ),
 
     vscode.commands.registerCommand(
-      COMMANDS
-        .traceProjectConversationStorage,
+      COMMANDS.traceProjectConversationStorage,
       () =>
         traceProjectConversationStorageCommand
           .execute()
     ),
 
     vscode.commands.registerCommand(
-      COMMANDS
-        .buildConversationBundleManifest,
+      COMMANDS.buildConversationBundleManifest,
       () =>
         buildConversationBundleManifestCommand
           .execute()
     ),
 
     vscode.commands.registerCommand(
-      COMMANDS
-        .exportConversationBundle,
+      COMMANDS.exportConversationBundle,
       () =>
         exportConversationBundleCommand
           .execute()
     ),
 
     vscode.commands.registerCommand(
-      COMMANDS
-        .exportEncryptedConversationBundle,
+      COMMANDS.exportEncryptedConversationBundle,
       () =>
         exportEncryptedConversationBundleCommand
+          .execute()
+    ),
+
+    vscode.commands.registerCommand(
+      COMMANDS.validateEncryptedConversationBundle,
+      () =>
+        validateEncryptedConversationBundleCommand
+          .execute()
+    ),
+
+    vscode.commands.registerCommand(
+      COMMANDS.importEncryptedConversationBundle,
+      () =>
+        importEncryptedConversationBundleCommand
+          .execute()
+    ),
+
+    vscode.commands.registerCommand(
+      COMMANDS.uploadAllChatsToCloud,
+      () =>
+        uploadAllChatsToCloudCommand
+          .execute()
+    ),
+
+    vscode.commands.registerCommand(
+      COMMANDS.importChatsFromCloud,
+      () =>
+        importChatsFromCloudCommand
+          .execute()
+    ),
+
+    vscode.commands.registerCommand(
+      COMMANDS.manageCloudBundles,
+      () =>
+        manageCloudBundlesCommand
+          .execute()
+    ),
+
+    vscode.commands.registerCommand(
+      COMMANDS.copySavedSyncKey,
+      () =>
+        copySavedSyncKeyCommand
           .execute()
     )
   );
@@ -295,9 +569,18 @@ export function activate(
   logger.info(
     "Cursor Team Chat Sync activated."
   );
+
+  /*
+   * Report a completed external import when Cursor opens again.
+   */
+
+  void conversationImportResultReporter
+    .reportLatest();
 }
 
 export function deactivate(): void {
-  // Resources registered inside context.subscriptions
-  // are disposed automatically.
+  /*
+   * Services registered in context.subscriptions
+   * are disposed automatically.
+   */
 }

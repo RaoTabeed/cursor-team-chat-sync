@@ -23,3 +23,10 @@ Thumbs.db
 # Temporary logs
 *.log
 npm-debug.log*
+node_modules/
+*.vsix
+*.cursor-sync-key.txt
+*.cursor-chat-bundle*
+.env
+.env.*
+supabase/.temp/

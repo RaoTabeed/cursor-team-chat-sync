@@ -1,11 +1,13 @@
 import {
     createHash,
+    createHmac,
     randomBytes,
     randomUUID,
     timingSafeEqual
   } from "node:crypto";
   
   import type {
+    CursorSyncKeyMaterial,
     GeneratedCursorSyncKey,
     ParsedCursorSyncKey
   } from "./cursorSyncKeyTypes";
@@ -18,6 +20,9 @@ import {
   
   const CHECKSUM_BYTES =
     6;
+  
+  const ACCESS_TOKEN_CONTEXT =
+    "cursor-team-chat-sync:cloud-access-token:v1";
   
   const UUID_PATTERN =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -52,10 +57,14 @@ import {
       return {
         version: 1,
         vaultId,
+  
         createdAt:
-          new Date().toISOString(),
+          new Date()
+            .toISOString(),
+  
         syncKey:
           `${keyBody}.${checksum}`,
+  
         keyBytes
       };
     }
@@ -69,7 +78,9 @@ import {
       const parts =
         normalizedKey.split(".");
   
-      if (parts.length !== 4) {
+      if (
+        parts.length !== 4
+      ) {
         throw new Error(
           "The Cursor Sync Key has an invalid format."
         );
@@ -82,7 +93,9 @@ import {
         suppliedChecksum
       ] = parts;
   
-      if (prefix !== KEY_PREFIX) {
+      if (
+        prefix !== KEY_PREFIX
+      ) {
         throw new Error(
           "The Cursor Sync Key version is not supported."
         );
@@ -106,12 +119,9 @@ import {
             secretText,
             "base64url"
           );
-      } catch (error) {
+      } catch {
         throw new Error(
-          "The Cursor Sync Key contains an invalid secret.",
-          {
-            cause: error
-          }
+          "The Cursor Sync Key contains an invalid secret."
         );
       }
   
@@ -145,31 +155,24 @@ import {
           keyBody
         );
   
-      const suppliedChecksumBytes =
+      const suppliedBytes =
         Buffer.from(
           suppliedChecksum,
           "utf8"
         );
   
-      const expectedChecksumBytes =
+      const expectedBytes =
         Buffer.from(
           expectedChecksum,
           "utf8"
         );
   
       if (
-        suppliedChecksumBytes.length !==
-        expectedChecksumBytes.length
-      ) {
-        throw new Error(
-          "The Cursor Sync Key checksum is invalid."
-        );
-      }
-  
-      if (
+        suppliedBytes.length !==
+          expectedBytes.length ||
         !timingSafeEqual(
-          suppliedChecksumBytes,
-          expectedChecksumBytes
+          suppliedBytes,
+          expectedBytes
         )
       ) {
         throw new Error(
@@ -179,17 +182,62 @@ import {
   
       return {
         version: 1,
-        vaultId,
+  
+        vaultId:
+          vaultId.toLowerCase(),
+  
         syncKey:
           normalizedKey,
+  
         keyBytes
       };
+    }
+  
+    public deriveAccessToken(
+      material:
+        Pick<
+          CursorSyncKeyMaterial,
+          "vaultId" | "keyBytes"
+        >
+    ): string {
+      return createHmac(
+        "sha256",
+        material.keyBytes
+      )
+        .update(
+          [
+            ACCESS_TOKEN_CONTEXT,
+            material.vaultId
+              .toLowerCase()
+          ].join(":"),
+          "utf8"
+        )
+        .digest(
+          "base64url"
+        );
+    }
+  
+    public hashAccessToken(
+      accessToken: string
+    ): string {
+      return createHash(
+        "sha256"
+      )
+        .update(
+          accessToken,
+          "utf8"
+        )
+        .digest(
+          "hex"
+        );
     }
   
     private createChecksum(
       keyBody: string
     ): string {
-      return createHash("sha256")
+      return createHash(
+        "sha256"
+      )
         .update(
           keyBody,
           "utf8"

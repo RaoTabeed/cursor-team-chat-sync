@@ -1,21 +1,14 @@
-export interface GeneratedCursorSyncKey {
+export interface CursorSyncKeyMaterial {
     version: 1;
-  
     vaultId: string;
+    syncKey: string;
+    keyBytes: Buffer;
+  }
   
+  export interface GeneratedCursorSyncKey
+    extends CursorSyncKeyMaterial {
     createdAt: string;
-  
-    syncKey: string;
-  
-    keyBytes: Buffer;
   }
   
-  export interface ParsedCursorSyncKey {
-    version: 1;
-  
-    vaultId: string;
-  
-    syncKey: string;
-  
-    keyBytes: Buffer;
-  }
+  export interface ParsedCursorSyncKey
+    extends CursorSyncKeyMaterial {}

@@ -14,41 +14,80 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
-  "commands": [
-    {
-      "command": "cursorTeamChatSync.inspectStorage",
-      "title": "Cursor Team Chat Sync: Inspect Local Cursor Storage"
-    },
-    {
-      "command": "cursorTeamChatSync.inspectCurrentProject",
-      "title": "Cursor Team Chat Sync: Inspect Current Project"
-    },
-    {
-      "command": "cursorTeamChatSync.inspectCurrentProjectDatabases",
-      "title": "Cursor Team Chat Sync: Inspect Current Project Databases"
-    },
-    {
-      "command": "cursorTeamChatSync.indexProjectConversations",
-      "title": "Cursor Team Chat Sync: Index Project Conversations"
-    },
-    {
-      "command": "cursorTeamChatSync.traceProjectConversationStorage",
-      "title": "Cursor Team Chat Sync: Trace Project Conversation Storage"
-    },
-    {
-      "command": "cursorTeamChatSync.buildConversationBundleManifest",
-      "title": "Cursor Team Chat Sync: Build Conversation Bundle Manifest"
-    },
-    {
-      "command": "cursorTeamChatSync.exportConversationBundle",
-      "title": "Cursor Team Chat Sync: Export Exact Conversation Bundle"
-    },
-    {
-      "command": "cursorTeamChatSync.exportEncryptedConversationBundle",
-      "title": "Cursor Team Chat Sync: Export Encrypted Conversation Bundle"
+    "commands": [
+      {
+        "command": "cursorTeamChatSync.inspectStorage",
+        "title": "Cursor Team Chat Sync: Inspect Local Cursor Storage"
+      },
+      {
+        "command": "cursorTeamChatSync.inspectCurrentProject",
+        "title": "Cursor Team Chat Sync: Inspect Current Project"
+      },
+      {
+        "command": "cursorTeamChatSync.inspectCurrentProjectDatabases",
+        "title": "Cursor Team Chat Sync: Inspect Current Project Databases"
+      },
+      {
+        "command": "cursorTeamChatSync.indexProjectConversations",
+        "title": "Cursor Team Chat Sync: Index Project Conversations"
+      },
+      {
+        "command": "cursorTeamChatSync.traceProjectConversationStorage",
+        "title": "Cursor Team Chat Sync: Trace Project Conversation Storage"
+      },
+      {
+        "command": "cursorTeamChatSync.buildConversationBundleManifest",
+        "title": "Cursor Team Chat Sync: Build Conversation Bundle Manifest"
+      },
+      {
+        "command": "cursorTeamChatSync.exportConversationBundle",
+        "title": "Cursor Team Chat Sync: Export Exact Conversation Bundle"
+      },
+      {
+        "command": "cursorTeamChatSync.exportEncryptedConversationBundle",
+        "title": "Cursor Team Chat Sync: Export Encrypted Conversation Bundle"
+      },
+      {
+        "command": "cursorTeamChatSync.validateEncryptedConversationBundle",
+        "title": "Cursor Team Chat Sync: Validate Encrypted Bundle for Import"
+      },
+      {
+        "command": "cursorTeamChatSync.importEncryptedConversationBundle",
+        "title": "Cursor Team Chat Sync: Import Encrypted Conversation Bundle"
+      },
+      {
+        "command": "cursorTeamChatSync.uploadAllChatsToCloud",
+        "title": "Cursor Team Chat Sync: Upload All Chats to Cloud"
+      },
+      {
+        "command": "cursorTeamChatSync.importChatsFromCloud",
+        "title": "Cursor Team Chat Sync: Import Chats from Cloud"
+      },
+      {
+        "command": "cursorTeamChatSync.manageCloudBundles",
+        "title": "Cursor Team Chat Sync: Manage Cloud Bundle Versions"
+      },
+      {
+        "command": "cursorTeamChatSync.copySavedSyncKey",
+        "title": "Cursor Team Chat Sync: Copy Saved Sync Key"
+      }
+    ],
+    "configuration": {
+      "title": "Cursor Team Chat Sync",
+      "properties": {
+        "cursorTeamChatSync.supabaseUrl": {
+          "type": "string",
+          "default": "https://txwbncydzddclzfdslnm.supabase.co",
+          "description": "Supabase project URL used by Cursor Team Chat Sync."
+        },
+        "cursorTeamChatSync.supabasePublishableKey": {
+          "type": "string",
+          "default": "sb_publishable_tADK63mSBl5qR1pnpIj6Vw_0dpNm06M",
+          "description": "Supabase publishable key used by Cursor Team Chat Sync."
+        }
+      }
     }
-  ]
-},
+  },
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc --watch -p ./",
@@ -57,6 +96,10 @@
   "devDependencies": {
     "@types/node": "20.17.0",
     "@types/vscode": "1.85.0",
+    "supabase": "^2.109.1",
     "typescript": "5.9.3"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.110.7"
   }
 }

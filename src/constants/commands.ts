@@ -21,5 +21,23 @@ export const COMMANDS = {
     "cursorTeamChatSync.exportConversationBundle",
 
   exportEncryptedConversationBundle:
-    "cursorTeamChatSync.exportEncryptedConversationBundle"
+    "cursorTeamChatSync.exportEncryptedConversationBundle",
+
+  validateEncryptedConversationBundle:
+    "cursorTeamChatSync.validateEncryptedConversationBundle",
+
+  importEncryptedConversationBundle:
+    "cursorTeamChatSync.importEncryptedConversationBundle",
+
+  uploadAllChatsToCloud:
+    "cursorTeamChatSync.uploadAllChatsToCloud",
+
+  importChatsFromCloud:
+    "cursorTeamChatSync.importChatsFromCloud",
+
+  manageCloudBundles:
+    "cursorTeamChatSync.manageCloudBundles",
+
+  copySavedSyncKey:
+    "cursorTeamChatSync.copySavedSyncKey"
 } as const;
