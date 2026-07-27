@@ -9,7 +9,7 @@ The project is **source-first and self-hosted**:
 - The author’s database, keys, Sync Keys, and Cursor databases are not included.
 - A prebuilt VSIX may be published for convenience, but it is not connected to any database by default.
 
-> **Current tested version:** `0.0.12`  
+> **Current tested version:** `0.0.16`  
 > **Platform tested:** Windows  
 > **Release status:** Public beta
 
