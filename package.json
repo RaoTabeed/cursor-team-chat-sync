@@ -2,7 +2,7 @@
   "name": "cursor-team-chat-sync",
   "displayName": "Cursor Team Chat Sync",
   "description": "Share project-specific Cursor Agent conversations safely with authorized team members.",
-  "version": "0.0.1",
+  "version": "0.0.12",
   "publisher": "rmt-dev",
   "private": true,
   "type": "commonjs",
@@ -76,15 +76,17 @@
       "title": "Cursor Team Chat Sync",
       "properties": {
         "cursorTeamChatSync.supabaseUrl": {
-          "type": "string",
-          "default": "https://txwbncydzddclzfdslnm.supabase.co",
-          "description": "Supabase project URL used by Cursor Team Chat Sync."
-        },
-        "cursorTeamChatSync.supabasePublishableKey": {
-          "type": "string",
-          "default": "sb_publishable_tADK63mSBl5qR1pnpIj6Vw_0dpNm06M",
-          "description": "Supabase publishable key used by Cursor Team Chat Sync."
-        }
+  "type": "string",
+  "default": "",
+  "scope": "machine",
+  "description": "Your Supabase project URL. Required for cloud synchronization."
+},
+"cursorTeamChatSync.supabasePublishableKey": {
+  "type": "string",
+  "default": "",
+  "scope": "machine",
+  "description": "Your Supabase publishable key. Required for cloud synchronization."
+}
       }
     }
   },

@@ -1,32 +1,60 @@
-# Installed npm dependencies
+# Node.js dependencies and build output
 node_modules/
-
-# Compiled JavaScript
 out/
-
-# Packaged extension files
-*.vsix
-
-# Test and coverage output
+dist/
 coverage/
 .nyc_output/
 
-# Operating-system files
-.DS_Store
-Thumbs.db
+# Packaged extensions
+*.vsix
 
-# Environment and secret files
+# Python-generated files
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environment and local secret files
 .env
 .env.*
 !.env.example
 
-# Temporary logs
-*.log
-npm-debug.log*
-node_modules/
-*.vsix
-*.cursor-sync-key.txt
-*.cursor-chat-bundle*
-.env
-.env.*
+# Supabase local CLI state
 supabase/.temp/
+supabase/.branches/
+
+# Cursor and SQLite databases
+*.vscdb
+*.vscdb-wal
+*.vscdb-shm
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+
+# Runtime chat-sync data
+*.cursor-sync-key.txt
+*.cursor-chat-bundle
+*.cursor-chat-bundle.*
+database-backups/
+import-jobs/
+cloud-downloads/
+import-validation/
+
+# Temporary development and repair files
+*.backup
+*.bak
+*.tmp
+*.log
+*.before-*
+finalize_cursor_team_chat_sync_v*.py
+repair_cursor_*.py
+repair-v*.py
+code-backup-before-*/
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+desktop.ini

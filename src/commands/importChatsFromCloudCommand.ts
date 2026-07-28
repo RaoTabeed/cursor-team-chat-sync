@@ -127,6 +127,44 @@ export class ImportChatsFromCloudCommand {
             project.projectPath
           );
 
+      const currentWorkspaceId =
+        this.readCurrentWorkspaceId(
+          project.cursorWorkspace
+        );
+
+      if (!currentWorkspaceId) {
+        throw new Error(
+          [
+            "Cursor has not created a valid local workspace for this project.",
+            "Open the project, create one temporary chat, restart Cursor and try again."
+          ].join(" ")
+        );
+      }
+
+      const currentWorkspaceDatabasePath =
+        this.readCurrentWorkspaceDatabasePath(
+          project.cursorWorkspace,
+          currentWorkspaceId
+        );
+
+      if (!currentWorkspaceDatabasePath) {
+        throw new Error(
+          [
+            "The current Cursor workspace database could not be resolved.",
+            "Run Cursor Team Chat Sync: Inspect Current Project and confirm",
+            "that a workspace state.vscdb path is displayed."
+          ].join(" ")
+        );
+      }
+
+      this.logger.info(
+        `Matched destination workspace ID: ${currentWorkspaceId}`
+      );
+
+      this.logger.info(
+        `Matched workspace database: ${currentWorkspaceDatabasePath}`
+      );
+
       const parsedKey =
         await this.resolveSyncKey(
           descriptor.stableProjectId
@@ -145,35 +183,36 @@ export class ImportChatsFromCloudCommand {
           .deriveAccessToken(
             parsedKey
           );
-          const vaultInfo =
-          await this.cloudApiService
-            .getVaultInfo(
-              parsedKey.vaultId,
-              accessToken
-            );
-        
-        if (!vaultInfo.project) {
-          throw new Error(
-            "This Cursor Sync Key does not have an uploaded project yet."
+
+      const vaultInfo =
+        await this.cloudApiService
+          .getVaultInfo(
+            parsedKey.vaultId,
+            accessToken
           );
-        }
-        
-        if (
-          vaultInfo.project
-            .stableProjectId !==
-              descriptor.stableProjectId
-        ) {
-          throw new Error(
-            [
-              "Project mismatch.",
-              `This Sync Key belongs to "${vaultInfo.project.projectName}".`,
-              `Cloud project ID: ${vaultInfo.project.stableProjectId}.`,
-              `Current project ID: ${descriptor.stableProjectId}.`,
-              "Open the correct project before importing this key.",
-              "No cloud bundle was downloaded and no Cursor database was changed."
-            ].join(" ")
-          );
-        }
+
+      if (!vaultInfo.project) {
+        throw new Error(
+          "This Cursor Sync Key does not have an uploaded project yet."
+        );
+      }
+
+      if (
+        vaultInfo.project
+          .stableProjectId !==
+        descriptor.stableProjectId
+      ) {
+        throw new Error(
+          [
+            "Project mismatch.",
+            `This Sync Key belongs to "${vaultInfo.project.projectName}".`,
+            `Cloud project ID: ${vaultInfo.project.stableProjectId}.`,
+            `Current project ID: ${descriptor.stableProjectId}.`,
+            "Open the correct project before importing this key.",
+            "No cloud bundle was downloaded and no Cursor database was changed."
+          ].join(" ")
+        );
+      }
 
       const latest =
         await this.cloudApiService
@@ -223,59 +262,57 @@ export class ImportChatsFromCloudCommand {
           .summary
           .conflictCount > 0
       ) {
+        const conflicts =
+          validation
+            .conversations
+            .filter(
+              conversation =>
+                conversation.status ===
+                "conflict"
+            );
+
+        this.logger.info(
+          "========================================"
+        );
+
+        this.logger.info(
+          "CONVERSATION CONFLICT DETAILS"
+        );
+
+        this.logger.info(
+          `Conflict count: ${conflicts.length}`
+        );
+
+        for (
+          const conflict of conflicts
+        ) {
+          this.logger.info(
+            JSON.stringify(
+              conflict,
+              null,
+              2
+            )
+          );
+        }
+
+        this.logger.info(
+          "========================================"
+        );
+
         throw new Error(
           [
             "Cloud import stopped because",
             `${validation.summary.conflictCount}`,
-            "conversation conflict(s) require review."
+            "conversation conflict(s) require review.",
+            "No database was modified.",
+            "See CONVERSATION CONFLICT DETAILS in the Output panel."
           ].join(" ")
         );
       }
 
-      if (
-        validation
-          .summary
-          .newCount === 0
-      ) {
-        await this.decryptionService
-          .deleteTemporaryBundle(
-            decryptedResult
-              .temporaryBundlePath
-          );
-
-        decryptedResult =
-          undefined;
-
-        await this.cloudStorageService
-          .deleteLocalFile(
-            downloadedBundlePath
-          );
-
-        downloadedBundlePath =
-          undefined;
-
-        await this.credentialStore
-          .store(
-            descriptor
-              .stableProjectId,
-
-            parsedKey.syncKey
-          );
-
-        await vscode.window
-          .showInformationMessage(
-            [
-              "The latest cloud bundle is already present on this device.",
-              `${validation.summary.identicalCount}`,
-              "conversation(s) are identical."
-            ].join(" ")
-          );
-
-        return;
-      }
-
       const workspaceId =
         await this.selectWorkspaceId(
+          currentWorkspaceId,
           validation
         );
 
@@ -291,28 +328,54 @@ export class ImportChatsFromCloudCommand {
         downloadedBundlePath =
           undefined;
 
+        this.logger.info(
+          "Cloud import was cancelled while selecting the destination workspace."
+        );
+
         return;
       }
+
+      const confirmationButton =
+        validation.summary.newCount > 0
+          ? "Import and Close Cursor"
+          : "Repair Sidebar and Close Cursor";
+
+      const confirmationMessage =
+        validation.summary.newCount > 0
+          ? [
+              `Cloud bundle version ${latest.bundle.versionNumber} contains`,
+              `${validation.summary.newCount}`,
+              "new conversation(s) and",
+              `${validation.summary.identicalCount}`,
+              "identical conversation(s).",
+              `They will be mapped to workspace ${workspaceId}.`,
+              "Cursor will close, both Cursor databases will be backed up,",
+              "the conversations will be imported transactionally, and",
+              "the native Agent history sidebar index will be rebuilt."
+            ].join(" ")
+          : [
+              `Cloud bundle version ${latest.bundle.versionNumber} is already`,
+              "present in the global Cursor database.",
+              `${validation.summary.identicalCount}`,
+              "conversation(s) will be verified and added to the native",
+              `Agent history sidebar for workspace ${workspaceId}.`,
+              "Cursor will close and both databases will be backed up first."
+            ].join(" ");
 
       const confirmation =
         await vscode.window
           .showWarningMessage(
-            [
-              `Cloud bundle version ${latest.bundle.versionNumber} contains`,
-              `${validation.summary.newCount}`,
-              "new conversation(s).",
-              "Cursor will close, back up its database and import them transactionally."
-            ].join(" "),
+            confirmationMessage,
             {
               modal:
                 true
             },
-            "Import and Close Cursor"
+            confirmationButton
           );
 
       if (
         confirmation !==
-        "Import and Close Cursor"
+        confirmationButton
       ) {
         await this.cleanup(
           decryptedResult,
@@ -324,6 +387,10 @@ export class ImportChatsFromCloudCommand {
 
         downloadedBundlePath =
           undefined;
+
+        this.logger.info(
+          "Cloud import confirmation was cancelled."
+        );
 
         return;
       }
@@ -346,6 +413,9 @@ export class ImportChatsFromCloudCommand {
               destinationDatabasePath:
                 storage
                   .globalDatabasePath,
+
+              destinationWorkspaceDatabasePath:
+                currentWorkspaceDatabasePath,
 
               destinationProjectPath:
                 project.projectPath,
@@ -387,11 +457,31 @@ export class ImportChatsFromCloudCommand {
       );
 
       this.logger.info(
+        `Project ID: ${descriptor.stableProjectId}`
+      );
+
+      this.logger.info(
+        `Destination workspace ID: ${workspaceId}`
+      );
+
+      this.logger.info(
+        `Destination workspace database: ${currentWorkspaceDatabasePath}`
+      );
+
+      this.logger.info(
         `Cloud bundle version: ${latest.bundle.versionNumber}`
       );
 
       this.logger.info(
         `New conversations: ${validation.summary.newCount}`
+      );
+
+      this.logger.info(
+        `Identical conversations: ${validation.summary.identicalCount}`
+      );
+
+      this.logger.info(
+        `Sidebar repair required: ${validation.summary.identicalCount > 0}`
       );
 
       this.logger.info(
@@ -443,7 +533,8 @@ export class ImportChatsFromCloudCommand {
   }
 
   private async resolveSyncKey(
-    stableProjectId: string
+    stableProjectId:
+      string
   ): Promise<
     ParsedCursorSyncKey |
     undefined
@@ -497,7 +588,11 @@ export class ImportChatsFromCloudCommand {
               "Enter Cursor Sync Key",
 
             prompt:
-              "Paste the complete CTS1 key. The vault ID locates the cloud bundle and the secret decrypts it locally.",
+              [
+                "Paste the complete CTS1 key.",
+                "The vault ID locates the cloud bundle",
+                "and the secret decrypts it locally."
+              ].join(" "),
 
             placeHolder:
               "CTS1.<vault-id>.<secret>.<checksum>",
@@ -520,23 +615,243 @@ export class ImportChatsFromCloudCommand {
       );
   }
 
+  private readCurrentWorkspaceId(
+    cursorWorkspace:
+      unknown
+  ): string | undefined {
+    if (
+      typeof cursorWorkspace !==
+        "object" ||
+      cursorWorkspace === null
+    ) {
+      return undefined;
+    }
+
+    const workspace =
+      cursorWorkspace as
+        Record<string, unknown>;
+
+    const directCandidates = [
+      workspace.workspaceId,
+      workspace.id
+    ];
+
+    for (
+      const candidate of
+      directCandidates
+    ) {
+      const normalized =
+        this.normalizeWorkspaceId(
+          candidate
+        );
+
+      if (normalized) {
+        return normalized;
+      }
+    }
+
+    for (
+      const value of
+      Object.values(
+        workspace
+      )
+    ) {
+      if (
+        typeof value !==
+        "string"
+      ) {
+        continue;
+      }
+
+      for (
+        const segment of
+        value.split(
+          /[\\/]/
+        )
+      ) {
+        const normalized =
+          this.normalizeWorkspaceId(
+            segment
+          );
+
+        if (normalized) {
+          return normalized;
+        }
+      }
+    }
+
+    return undefined;
+  }
+
+  private readCurrentWorkspaceDatabasePath(
+    cursorWorkspace:
+      unknown,
+
+    workspaceId:
+      string
+  ): string | undefined {
+    if (
+      typeof cursorWorkspace !==
+        "object" ||
+      cursorWorkspace === null
+    ) {
+      return undefined;
+    }
+
+    const workspace =
+      cursorWorkspace as
+        Record<string, unknown>;
+
+    const candidates = [
+      workspace.databasePath,
+      workspace.workspaceDatabasePath,
+      workspace.stateDatabasePath,
+      ...Object.values(
+        workspace
+      )
+    ];
+
+    for (
+      const candidate of
+      candidates
+    ) {
+      if (
+        typeof candidate !==
+        "string"
+      ) {
+        continue;
+      }
+
+      const normalizedPath =
+        path.normalize(
+          candidate.trim()
+        );
+
+      if (
+        !path.isAbsolute(
+          normalizedPath
+        )
+      ) {
+        continue;
+      }
+
+      if (
+        path.basename(
+          normalizedPath
+        ).toLowerCase() !==
+          "state.vscdb"
+      ) {
+        continue;
+      }
+
+      const lowerPath =
+        normalizedPath
+          .toLowerCase();
+
+      if (
+        !lowerPath.includes(
+          `${path.sep}workspacestorage${path.sep}`
+        )
+      ) {
+        continue;
+      }
+
+      if (
+        !lowerPath.includes(
+          `${path.sep}${workspaceId.toLowerCase()}${path.sep}`
+        )
+      ) {
+        continue;
+      }
+
+      return normalizedPath;
+    }
+
+    return undefined;
+  }
+
+  private normalizeWorkspaceId(
+    value:
+      unknown
+  ): string | undefined {
+    if (
+      typeof value !==
+      "string"
+    ) {
+      return undefined;
+    }
+
+    const normalized =
+      value
+        .trim()
+        .toLowerCase();
+
+    return /^[0-9a-f]{32}$/.test(
+      normalized
+    )
+      ? normalized
+      : undefined;
+  }
+
   private async selectWorkspaceId(
+    currentWorkspaceId:
+      string,
+
     validation:
       ConversationImportValidationResult
   ): Promise<string | undefined> {
-    const workspaceIds =
+    const validationWorkspaceIds =
       validation
         .destination
-        .workspaceIds;
+        .workspaceIds
+        .map(
+          workspaceId =>
+            workspaceId
+              .trim()
+              .toLowerCase()
+        )
+        .filter(
+          workspaceId =>
+            /^[0-9a-f]{32}$/.test(
+              workspaceId
+            )
+        );
+
+    const availableWorkspaceIds =
+      [
+        currentWorkspaceId,
+        ...validationWorkspaceIds
+      ].filter(
+        (
+          workspaceId,
+          index,
+          allWorkspaceIds
+        ) =>
+          allWorkspaceIds
+            .indexOf(
+              workspaceId
+            ) === index
+      );
 
     if (
-      workspaceIds.length === 1
+      availableWorkspaceIds
+        .includes(
+          currentWorkspaceId
+        )
     ) {
-      return workspaceIds[0];
+      return currentWorkspaceId;
     }
 
     if (
-      workspaceIds.length === 0
+      availableWorkspaceIds
+        .length === 1
+    ) {
+      return availableWorkspaceIds[0];
+    }
+
+    if (
+      availableWorkspaceIds
+        .length === 0
     ) {
       throw new Error(
         "No valid Cursor workspace ID was found for the currently open project."
@@ -545,7 +860,7 @@ export class ImportChatsFromCloudCommand {
 
     return vscode.window
       .showQuickPick(
-        workspaceIds,
+        availableWorkspaceIds,
         {
           title:
             "Select Destination Workspace",
@@ -579,7 +894,8 @@ export class ImportChatsFromCloudCommand {
   }
 
   private getErrorMessage(
-    error: unknown
+    error:
+      unknown
   ): string {
     return error instanceof Error
       ? error.message

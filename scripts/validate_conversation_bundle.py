@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import os
@@ -10,10 +11,9 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
+from urllib.parse import urlparse
 
-from build_conversation_bundle_manifest import (
-    DATABASE_TABLES,
-)
+from build_conversation_bundle_manifest import DATABASE_TABLES
 
 from index_project_conversations import (
     create_read_only_uri,
@@ -23,14 +23,8 @@ from index_project_conversations import (
 )
 
 
-BUNDLE_MANIFEST_NAME = (
-    "bundle-manifest.json"
-)
-
-EXPECTED_BUNDLE_FORMAT = (
-    "cursor-team-chat-sync"
-)
-
+BUNDLE_MANIFEST_NAME = "bundle-manifest.json"
+EXPECTED_BUNDLE_FORMAT = "cursor-team-chat-sync"
 EXPECTED_BUNDLE_VERSION = 1
 
 SHA256_PATTERN = re.compile(
@@ -47,7 +41,9 @@ def utc_now_iso() -> str:
     )
 
 
-def sha256_bytes(value: bytes) -> str:
+def sha256_bytes(
+    value: bytes,
+) -> str:
     return hashlib.sha256(
         value
     ).hexdigest()
@@ -79,9 +75,7 @@ def normalize_sqlite_blob(
     if isinstance(value, str):
         return value.encode("utf-8")
 
-    return str(value).encode(
-        "utf-8"
-    )
+    return str(value).encode("utf-8")
 
 
 def get_string(
@@ -118,6 +112,20 @@ def validate_table_name(
             "Unsupported SQLite table: "
             f"{table_name}"
         )
+
+
+def is_tolerated_local_record_difference(
+    table_name: str,
+    key: str,
+    composer_id: str,
+) -> bool:
+    if table_name != "cursorDiskKV":
+        return False
+
+    return key in {
+        f"composerData:{composer_id}",
+        f"composerVirtualRowHeights:{composer_id}",
+    }
 
 
 def validate_archive_path(
@@ -224,6 +232,18 @@ def validate_payload_entry(
         )
     )
 
+    expected_byte_length = (
+        payload_entry.get(
+            "byteLength"
+        )
+    )
+
+    expected_sha256 = get_string(
+        payload_entry.get(
+            "sha256"
+        )
+    )
+
     if not payload_path:
         raise ValueError(
             "A conversation payload "
@@ -232,12 +252,6 @@ def validate_payload_entry(
 
     validate_archive_path(
         payload_path
-    )
-
-    expected_byte_length = (
-        payload_entry.get(
-            "byteLength"
-        )
     )
 
     if (
@@ -255,12 +269,6 @@ def validate_payload_entry(
             "A conversation payload "
             "has an invalid byte length."
         )
-
-    expected_sha256 = get_string(
-        payload_entry.get(
-            "sha256"
-        )
-    )
 
     if (
         expected_sha256 is None
@@ -293,8 +301,8 @@ def validate_payload_entry(
     )
 
     if (
-        actual_byte_length !=
-        expected_byte_length
+        actual_byte_length
+        != expected_byte_length
     ):
         raise ValueError(
             "Conversation payload size "
@@ -315,11 +323,163 @@ def validate_payload_entry(
     return {
         "payloadPath":
             payload_path,
+
         "byteLength":
             actual_byte_length,
+
         "sha256":
             actual_sha256,
     }
+
+
+def destination_uri_values(
+    destination_project_path: str,
+) -> dict[str, str]:
+    resolved_path = Path(
+        destination_project_path
+    ).resolve()
+
+    external_uri = (
+        resolved_path.as_uri()
+    )
+
+    parsed_uri = urlparse(
+        external_uri
+    )
+
+    return {
+        "fsPath":
+            str(resolved_path),
+
+        "external":
+            external_uri,
+
+        "path":
+            parsed_uri.path,
+    }
+
+
+def remap_uri_object(
+    value: Any,
+    destination_project_path: str,
+) -> None:
+    if not isinstance(
+        value,
+        dict,
+    ):
+        return
+
+    value["scheme"] = "file"
+
+    if "authority" in value:
+        value["authority"] = ""
+
+    destination_values = (
+        destination_uri_values(
+            destination_project_path
+        )
+    )
+
+    for (
+        field_name,
+        field_value,
+    ) in destination_values.items():
+        value[field_name] = field_value
+
+
+def prepare_imported_header(
+    original_header: dict[str, Any],
+    destination_project_path: str,
+    destination_workspace_id: str,
+) -> dict[str, Any]:
+    header = copy.deepcopy(
+        original_header
+    )
+
+    header["type"] = "head"
+    header["hasBeenInSidebar"] = True
+    header["isArchived"] = False
+    header["isDraft"] = False
+
+    workspace_identifier = (
+        header.get(
+            "workspaceIdentifier"
+        )
+    )
+
+    if not isinstance(
+        workspace_identifier,
+        dict,
+    ):
+        workspace_identifier = {}
+
+        header[
+            "workspaceIdentifier"
+        ] = workspace_identifier
+
+    workspace_identifier["id"] = (
+        destination_workspace_id
+    )
+
+    workspace_uri = (
+        workspace_identifier.get(
+            "uri"
+        )
+    )
+
+    if not isinstance(
+        workspace_uri,
+        dict,
+    ):
+        workspace_uri = {}
+
+        workspace_identifier[
+            "uri"
+        ] = workspace_uri
+
+    remap_uri_object(
+        workspace_uri,
+        destination_project_path,
+    )
+
+    draft_target = header.get(
+        "draftTarget"
+    )
+
+    if isinstance(
+        draft_target,
+        dict,
+    ):
+        environment = (
+            draft_target.get(
+                "environment"
+            )
+        )
+
+        if isinstance(
+            environment,
+            dict,
+        ):
+            environment["id"] = (
+                destination_workspace_id
+            )
+
+            environment_uri = (
+                environment.get(
+                    "uri"
+                )
+            )
+
+            if isinstance(
+                environment_uri,
+                dict,
+            ):
+                remap_uri_object(
+                    environment_uri,
+                    destination_project_path,
+                )
+
+    return header
 
 
 def fetch_local_record(
@@ -343,19 +503,27 @@ def fetch_local_record(
         WHERE key = ?
         LIMIT 1
         """,
-        (key,),
+        (
+            key,
+        ),
     ).fetchone()
 
 
 def fetch_local_direct_record_keys(
     connection: sqlite3.Connection,
     composer_id: str,
-) -> set[tuple[str, str]]:
+) -> set[
+    tuple[str, str]
+]:
     result: set[
         tuple[str, str]
     ] = set()
 
     for table_name in DATABASE_TABLES:
+        validate_table_name(
+            table_name
+        )
+
         rows = connection.execute(
             f"""
             SELECT key
@@ -381,10 +549,13 @@ def fetch_local_direct_record_keys(
 
 def build_local_header_map(
     connection: sqlite3.Connection,
-) -> dict[str, dict[str, Any]]:
+) -> dict[
+    str,
+    dict[str, Any],
+]:
     result: dict[
         str,
-        dict[str, Any]
+        dict[str, Any],
     ] = {}
 
     for header in get_composer_headers(
@@ -396,15 +567,14 @@ def build_local_header_map(
             )
         )
 
-        if not composer_id:
-            continue
-
-        if composer_id in result:
-            continue
-
-        result[composer_id] = (
-            header
-        )
+        if (
+            composer_id
+            and composer_id
+            not in result
+        ):
+            result[
+                composer_id
+            ] = header
 
     return result
 
@@ -422,9 +592,7 @@ def get_destination_workspace_ids(
         "unknown",
     }
 
-    for composer_header in (
-        composer_headers
-    ):
+    for composer_header in composer_headers:
         match_sources = (
             get_project_match_sources(
                 composer_header,
@@ -456,14 +624,10 @@ def get_destination_workspace_ids(
         if not workspace_id:
             continue
 
-        normalized_workspace_id = (
+        if (
             workspace_id
             .strip()
             .lower()
-        )
-
-        if (
-            normalized_workspace_id
             in ignored_workspace_ids
         ):
             continue
@@ -481,8 +645,11 @@ def compare_bundle_conversation(
     connection: sqlite3.Connection,
     local_header_map:
         dict[str, dict[str, Any]],
+    bundle_header_map:
+        dict[str, dict[str, Any]],
     bundle_conversation:
         dict[str, Any],
+    destination_project_path: str,
 ) -> dict[str, Any]:
     composer_id = get_string(
         bundle_conversation.get(
@@ -496,38 +663,16 @@ def compare_bundle_conversation(
             "does not have a composer ID."
         )
 
-    header_entry = (
-        bundle_conversation.get(
-            "header"
+    original_bundle_header = (
+        bundle_header_map.get(
+            composer_id
         )
     )
 
-    if not isinstance(
-        header_entry,
-        dict,
-    ):
+    if original_bundle_header is None:
         raise ValueError(
-            "A bundle conversation "
-            "does not contain a header entry."
-        )
-
-    expected_header_sha256 = (
-        get_string(
-            header_entry.get(
-                "sha256"
-            )
-        )
-    )
-
-    if (
-        expected_header_sha256 is None
-        or not SHA256_PATTERN.fullmatch(
-            expected_header_sha256
-        )
-    ):
-        raise ValueError(
-            "A bundle conversation "
-            "header SHA-256 is invalid."
+            "A bundle conversation header "
+            "payload could not be resolved."
         )
 
     local_header = (
@@ -543,23 +688,45 @@ def compare_bundle_conversation(
     header_matches = False
 
     if local_header is not None:
-        local_header_sha256 = (
-            sha256_bytes(
-                canonical_json_bytes(
-                    local_header
-                )
+        workspace_identifier = (
+            local_header.get(
+                "workspaceIdentifier"
             )
         )
 
-        header_matches = (
-            local_header_sha256.lower()
-            == expected_header_sha256.lower()
+        destination_workspace_id = (
+            get_string(
+                workspace_identifier.get(
+                    "id"
+                )
+            )
+            if isinstance(
+                workspace_identifier,
+                dict,
+            )
+            else None
         )
 
-    records = (
-        bundle_conversation.get(
-            "records"
-        )
+        if destination_workspace_id:
+            expected_local_header = (
+                prepare_imported_header(
+                    original_bundle_header,
+                    destination_project_path,
+                    destination_workspace_id,
+                )
+            )
+
+            header_matches = (
+                canonical_json_bytes(
+                    local_header
+                )
+                == canonical_json_bytes(
+                    expected_local_header
+                )
+            )
+
+    records = bundle_conversation.get(
+        "records"
     )
 
     if not isinstance(
@@ -576,7 +743,11 @@ def compare_bundle_conversation(
     ] = set()
 
     missing_record_keys: list[str] = []
+
     changed_record_keys: list[str] = []
+
+    tolerated_changed_record_keys: list[str] = []
+
     matching_record_count = 0
 
     for record in records:
@@ -596,7 +767,9 @@ def compare_bundle_conversation(
         )
 
         key = get_string(
-            record.get("key")
+            record.get(
+                "key"
+            )
         )
 
         expected_sqlite_type = (
@@ -624,13 +797,11 @@ def compare_bundle_conversation(
         if (
             table_name is None
             or key is None
-            or expected_sqlite_type
-                is None
+            or expected_sqlite_type is None
             or expected_sha256 is None
-            or not SHA256_PATTERN
-                .fullmatch(
-                    expected_sha256
-                )
+            or not SHA256_PATTERN.fullmatch(
+                expected_sha256
+            )
             or not isinstance(
                 expected_byte_length,
                 int,
@@ -650,13 +821,11 @@ def compare_bundle_conversation(
             table_name
         )
 
-        identity = (
-            table_name,
-            key,
-        )
-
         expected_record_identities.add(
-            identity
+            (
+                table_name,
+                key,
+            )
         )
 
         local_row = fetch_local_record(
@@ -678,7 +847,9 @@ def compare_bundle_conversation(
 
         local_raw_value = (
             normalize_sqlite_blob(
-                local_row["raw_value"]
+                local_row[
+                    "raw_value"
+                ]
             )
         )
 
@@ -698,15 +869,26 @@ def compare_bundle_conversation(
 
         if (
             local_sha256.lower()
-                != expected_sha256.lower()
+            != expected_sha256.lower()
             or local_byte_length
-                != expected_byte_length
+            != expected_byte_length
             or local_sqlite_type
-                != expected_sqlite_type
+            != expected_sqlite_type
         ):
-            changed_record_keys.append(
-                location
-            )
+            if (
+                is_tolerated_local_record_difference(
+                    table_name,
+                    key,
+                    composer_id,
+                )
+            ):
+                tolerated_changed_record_keys.append(
+                    location
+                )
+            else:
+                changed_record_keys.append(
+                    location
+                )
 
             continue
 
@@ -734,9 +916,47 @@ def compare_bundle_conversation(
 
     has_any_local_state = (
         local_header_exists
-        or len(
+        or bool(
             local_direct_record_identities
-        ) > 0
+        )
+    )
+
+    bundle_last_updated_at = get_number(
+        bundle_conversation.get(
+            "lastUpdatedAt"
+        )
+    )
+
+    local_last_updated_at = (
+        get_number(
+            local_header.get(
+                "lastUpdatedAt"
+            )
+        )
+        if local_header is not None
+        else None
+    )
+
+    mutable_record_differences_are_safe = (
+        not tolerated_changed_record_keys
+        or (
+            local_header_exists
+            and bundle_last_updated_at is not None
+            and local_last_updated_at is not None
+            and local_last_updated_at
+            >= bundle_last_updated_at
+        )
+    )
+
+    expected_records_are_compatible = (
+        not missing_record_keys
+        and not changed_record_keys
+        and mutable_record_differences_are_safe
+    )
+
+    has_confirmed_local_conversation = (
+        local_header_exists
+        or matching_record_count > 0
     )
 
     if not has_any_local_state:
@@ -744,13 +964,20 @@ def compare_bundle_conversation(
         recommended_action = "import"
 
     elif (
-        header_matches
-        and not missing_record_keys
-        and not changed_record_keys
-        and not extra_direct_record_keys
+        expected_records_are_compatible
+        and has_confirmed_local_conversation
     ):
         status = "identical"
-        recommended_action = "skip"
+
+        if (
+            header_matches
+            and not tolerated_changed_record_keys
+        ):
+            recommended_action = "skip"
+        else:
+            recommended_action = (
+                "preserve-local-and-repair-sidebar"
+            )
 
     else:
         status = "conflict"
@@ -759,62 +986,91 @@ def compare_bundle_conversation(
     return {
         "composerId":
             composer_id,
+
         "status":
             status,
+
         "recommendedAction":
             recommended_action,
+
         "localHeaderExists":
             local_header_exists,
+
         "headerMatches":
             header_matches,
+
         "bundleRecordCount":
-            len(records),
+            len(
+                records
+            ),
+
         "localDirectRecordCount":
             len(
                 local_direct_record_identities
             ),
+
         "matchingRecordCount":
             matching_record_count,
+
         "missingRecordCount":
             len(
                 missing_record_keys
             ),
+
         "changedRecordCount":
             len(
                 changed_record_keys
             ),
+
+        "toleratedChangedRecordCount":
+            len(
+                tolerated_changed_record_keys
+            ),
+
         "extraDirectRecordCount":
             len(
                 extra_direct_record_keys
             ),
+
         "missingRecordKeys":
             sorted(
                 missing_record_keys
             ),
+
         "changedRecordKeys":
             sorted(
                 changed_record_keys
             ),
+
+        "toleratedChangedRecordKeys":
+            sorted(
+                tolerated_changed_record_keys
+            ),
+
         "extraDirectRecordKeys":
             extra_direct_record_keys,
+
         "createdAt":
             get_number(
                 bundle_conversation.get(
                     "createdAt"
                 )
             ),
+
         "lastUpdatedAt":
             get_number(
                 bundle_conversation.get(
                     "lastUpdatedAt"
                 )
             ),
+
         "type":
             get_string(
                 bundle_conversation.get(
                     "type"
                 )
             ),
+
         "unifiedMode":
             get_string(
                 bundle_conversation.get(
@@ -826,10 +1082,8 @@ def compare_bundle_conversation(
 
 def validate_bundle(
     bundle_path_string: str,
-    destination_database_path_string:
-        str,
-    destination_project_path_string:
-        str,
+    destination_database_path_string: str,
+    destination_project_path_string: str,
 ) -> dict[str, Any]:
     bundle_path = Path(
         bundle_path_string
@@ -845,10 +1099,7 @@ def validate_bundle(
             f"was not found: {bundle_path}"
         )
 
-    if (
-        not destination_database_path
-        .is_file()
-    ):
+    if not destination_database_path.is_file():
         raise FileNotFoundError(
             "The destination Cursor "
             "database was not found: "
@@ -884,9 +1135,7 @@ def validate_bundle(
                 f"{broken_entry}"
             )
 
-        for archive_name in (
-            archive.namelist()
-        ):
+        for archive_name in archive.namelist():
             validate_archive_path(
                 archive_name
             )
@@ -914,7 +1163,13 @@ def validate_bundle(
             )
 
         verified_payload_count = 0
+
         verified_payload_byte_length = 0
+
+        bundle_header_map: dict[
+            str,
+            dict[str, Any],
+        ] = {}
 
         for conversation in conversations:
             if not isinstance(
@@ -924,6 +1179,18 @@ def validate_bundle(
                 raise ValueError(
                     "The bundle contains "
                     "an invalid conversation."
+                )
+
+            composer_id = get_string(
+                conversation.get(
+                    "composerId"
+                )
+            )
+
+            if not composer_id:
+                raise ValueError(
+                    "A bundle conversation "
+                    "does not have a composer ID."
                 )
 
             header_entry = (
@@ -949,13 +1216,68 @@ def validate_bundle(
             )
 
             verified_payload_count += 1
-            verified_payload_byte_length += (
-                int(
+
+            verified_payload_byte_length += int(
+                header_result[
+                    "byteLength"
+                ]
+            )
+
+            header_payload = archive.read(
+                str(
                     header_result[
-                        "byteLength"
+                        "payloadPath"
                     ]
                 )
             )
+
+            try:
+                parsed_header = json.loads(
+                    header_payload.decode(
+                        "utf-8"
+                    )
+                )
+            except (
+                UnicodeDecodeError,
+                json.JSONDecodeError,
+            ) as error:
+                raise ValueError(
+                    "A bundle conversation header "
+                    "payload is not valid JSON."
+                ) from error
+
+            if not isinstance(
+                parsed_header,
+                dict,
+            ):
+                raise ValueError(
+                    "A bundle conversation header "
+                    "payload must be an object."
+                )
+
+            if (
+                get_string(
+                    parsed_header.get(
+                        "composerId"
+                    )
+                )
+                != composer_id
+            ):
+                raise ValueError(
+                    "A bundle conversation header "
+                    "does not match its composer ID."
+                )
+
+            if composer_id in bundle_header_map:
+                raise ValueError(
+                    "The bundle contains "
+                    "duplicate composer ID: "
+                    f"{composer_id}"
+                )
+
+            bundle_header_map[
+                composer_id
+            ] = parsed_header
 
             records = conversation.get(
                 "records"
@@ -988,12 +1310,11 @@ def validate_bundle(
                 )
 
                 verified_payload_count += 1
-                verified_payload_byte_length += (
-                    int(
-                        record_result[
-                            "byteLength"
-                        ]
-                    )
+
+                verified_payload_byte_length += int(
+                    record_result[
+                        "byteLength"
+                    ]
                 )
 
     connection = sqlite3.connect(
@@ -1034,10 +1355,11 @@ def validate_bundle(
             compare_bundle_conversation(
                 connection,
                 local_header_map,
+                bundle_header_map,
                 conversation,
+                destination_project_path_string,
             )
-            for conversation
-            in conversations
+            for conversation in conversations
             if isinstance(
                 conversation,
                 dict,
@@ -1053,7 +1375,10 @@ def validate_bundle(
 
     source_project_path: str | None = None
 
-    if isinstance(source, dict):
+    if isinstance(
+        source,
+        dict,
+    ):
         source_project_path = get_string(
             source.get(
                 "projectPath"
@@ -1077,97 +1402,131 @@ def validate_bundle(
     new_count = sum(
         1
         for item in import_plan
-        if item["status"] == "new"
+        if item[
+            "status"
+        ]
+        == "new"
     )
 
     identical_count = sum(
         1
         for item in import_plan
-        if item["status"]
+        if item[
+            "status"
+        ]
         == "identical"
     )
 
     conflict_count = sum(
         1
         for item in import_plan
-        if item["status"]
+        if item[
+            "status"
+        ]
         == "conflict"
     )
 
     return {
         "ok":
             True,
+
         "validationVersion":
-            1,
+            7,
+
         "validatedAt":
             utc_now_iso(),
+
         "bundle": {
             "path":
                 str(
                     bundle_path.resolve()
                 ),
+
             "sha256":
                 bundle_file_sha256,
+
             "format":
                 bundle_manifest[
                     "bundleFormat"
                 ],
+
             "version":
                 bundle_manifest[
                     "bundleVersion"
                 ],
+
             "generatedAt":
                 bundle_manifest.get(
                     "generatedAt"
                 ),
+
             "manifestSha256":
                 sha256_bytes(
                     bundle_manifest_bytes
                 ),
+
             "verifiedPayloadCount":
                 verified_payload_count,
+
             "verifiedPayloadByteLength":
                 verified_payload_byte_length,
         },
+
         "source": {
             "projectPath":
                 source_project_path,
         },
+
         "destination": {
             "projectPath":
                 os.path.abspath(
                     destination_project_path_string
                 ),
+
             "databasePath":
                 str(
                     destination_database_path
                     .resolve()
                 ),
+
             "workspaceIds":
                 destination_workspace_ids,
+
             "sameNormalizedProjectPath":
                 same_normalized_project_path,
         },
+
         "summary": {
             "conversationCount":
-                len(import_plan),
+                len(
+                    import_plan
+                ),
+
             "newCount":
                 new_count,
+
             "identicalCount":
                 identical_count,
+
             "conflictCount":
                 conflict_count,
+
             "recommendedImportCount":
                 new_count,
+
             "recommendedSkipCount":
                 identical_count,
+
             "requiresReviewCount":
                 conflict_count,
+
             "verifiedPayloadCount":
                 verified_payload_count,
+
             "verifiedPayloadByteLength":
                 verified_payload_byte_length,
         },
+
         "conversations":
             import_plan,
     }
@@ -1178,13 +1537,16 @@ def main() -> int:
         print(
             json.dumps(
                 {
-                    "ok": False,
-                    "error": (
-                        "Expected a decrypted "
-                        "bundle path, destination "
-                        "database path and destination "
-                        "project path."
-                    ),
+                    "ok":
+                        False,
+
+                    "error":
+                        (
+                            "Expected a decrypted "
+                            "bundle path, destination "
+                            "database path and destination "
+                            "project path."
+                        ),
                 }
             )
         )
@@ -1211,9 +1573,13 @@ def main() -> int:
         print(
             json.dumps(
                 {
-                    "ok": False,
+                    "ok":
+                        False,
+
                     "error":
-                        str(error),
+                        str(
+                            error
+                        ),
                 },
                 ensure_ascii=False,
             )
@@ -1223,4 +1589,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(
+        main()
+    )
