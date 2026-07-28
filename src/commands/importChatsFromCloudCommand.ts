@@ -335,22 +335,29 @@ export class ImportChatsFromCloudCommand {
         return;
       }
 
+      const hasConversationChanges =
+        validation.summary.newCount > 0 ||
+        validation.summary.updateCount > 0;
+
       const confirmationButton =
-        validation.summary.newCount > 0
-          ? "Import and Close Cursor"
+        hasConversationChanges
+          ? "Import Updates and Close Cursor"
           : "Repair Sidebar and Close Cursor";
 
       const confirmationMessage =
-        validation.summary.newCount > 0
+        hasConversationChanges
           ? [
               `Cloud bundle version ${latest.bundle.versionNumber} contains`,
               `${validation.summary.newCount}`,
-              "new conversation(s) and",
+              "new conversation(s),",
+              `${validation.summary.updateCount}`,
+              "updated conversation(s), and",
               `${validation.summary.identicalCount}`,
               "identical conversation(s).",
               `They will be mapped to workspace ${workspaceId}.`,
               "Cursor will close, both Cursor databases will be backed up,",
-              "the conversations will be imported transactionally, and",
+              "new append-only records will be inserted, newer conversation",
+              "state will be applied, local UI layout will be preserved, and",
               "the native Agent history sidebar index will be rebuilt."
             ].join(" ")
           : [
@@ -477,11 +484,15 @@ export class ImportChatsFromCloudCommand {
       );
 
       this.logger.info(
+        `Updated conversations: ${validation.summary.updateCount}`
+      );
+
+      this.logger.info(
         `Identical conversations: ${validation.summary.identicalCount}`
       );
 
       this.logger.info(
-        `Sidebar repair required: ${validation.summary.identicalCount > 0}`
+        `Sidebar repair required: ${validation.summary.identicalCount > 0 || validation.summary.updateCount > 0}`
       );
 
       this.logger.info(

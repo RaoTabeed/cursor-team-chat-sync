@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import copy
 import hashlib
@@ -114,18 +114,60 @@ def validate_table_name(
         )
 
 
-def is_tolerated_local_record_difference(
+def classify_tolerated_local_record_difference(
+    table_name: str,
+    key: str,
+    composer_id: str,
+) -> str | None:
+    """
+    Classify Cursor-managed records that may legitimately change locally.
+
+    composerData contains meaningful conversation state, so a changed local
+    value is safe only when its header timestamp is at least as recent as the
+    bundle.
+
+    composerVirtualRowHeights contains local UI rendering measurements. Cursor
+    recalculates it whenever a conversation is opened or rendered, so it is
+    always safe to preserve the destination value.
+    """
+    if table_name != "cursorDiskKV":
+        return None
+
+    if key == f"composerData:{composer_id}":
+        return "timestamp-protected"
+
+    if key == f"composerVirtualRowHeights:{composer_id}":
+        return "ui-layout"
+
+    return None
+
+
+def is_safe_incremental_missing_record(
     table_name: str,
     key: str,
     composer_id: str,
 ) -> bool:
+    """
+    Return True only for append-only conversation records that a newer
+    cloud bundle may safely add to an existing local conversation.
+    """
     if table_name != "cursorDiskKV":
         return False
 
-    return key in {
-        f"composerData:{composer_id}",
-        f"composerVirtualRowHeights:{composer_id}",
-    }
+    return (
+        key.startswith(
+            f"bubbleId:{composer_id}:"
+        )
+        or key.startswith(
+            f"checkpointId:{composer_id}:"
+        )
+        or key.startswith(
+            "agentKv:blob:"
+        )
+        or key.startswith(
+            "composer.content."
+        )
+    )
 
 
 def validate_archive_path(
@@ -748,6 +790,10 @@ def compare_bundle_conversation(
 
     tolerated_changed_record_keys: list[str] = []
 
+    timestamp_protected_changed_record_keys: list[str] = []
+
+    ui_layout_changed_record_keys: list[str] = []
+
     matching_record_count = 0
 
     for record in records:
@@ -875,16 +921,38 @@ def compare_bundle_conversation(
             or local_sqlite_type
             != expected_sqlite_type
         ):
-            if (
-                is_tolerated_local_record_difference(
+            tolerated_difference_type = (
+                classify_tolerated_local_record_difference(
                     table_name,
                     key,
                     composer_id,
                 )
+            )
+
+            if (
+                tolerated_difference_type
+                == "timestamp-protected"
             ):
                 tolerated_changed_record_keys.append(
                     location
                 )
+
+                timestamp_protected_changed_record_keys.append(
+                    location
+                )
+
+            elif (
+                tolerated_difference_type
+                == "ui-layout"
+            ):
+                tolerated_changed_record_keys.append(
+                    location
+                )
+
+                ui_layout_changed_record_keys.append(
+                    location
+                )
+
             else:
                 changed_record_keys.append(
                     location
@@ -937,21 +1005,71 @@ def compare_bundle_conversation(
         else None
     )
 
-    mutable_record_differences_are_safe = (
-        not tolerated_changed_record_keys
+    bundle_is_newer = (
+        bundle_last_updated_at is not None
+        and local_last_updated_at is not None
+        and bundle_last_updated_at
+        > local_last_updated_at
+    )
+
+    local_is_at_least_bundle = (
+        bundle_last_updated_at is not None
+        and local_last_updated_at is not None
+        and local_last_updated_at
+        >= bundle_last_updated_at
+    )
+
+    timestamp_protected_differences_are_safe_for_identical = (
+        not timestamp_protected_changed_record_keys
         or (
             local_header_exists
-            and bundle_last_updated_at is not None
-            and local_last_updated_at is not None
-            and local_last_updated_at
-            >= bundle_last_updated_at
+            and local_is_at_least_bundle
         )
     )
 
-    expected_records_are_compatible = (
+    safe_incremental_missing_record_keys = [
+        location
+        for location in missing_record_keys
+        if (
+            ":" in location
+            and is_safe_incremental_missing_record(
+                location.split(
+                    ":",
+                    1,
+                )[0],
+                location.split(
+                    ":",
+                    1,
+                )[1],
+                composer_id,
+            )
+        )
+    ]
+
+    unsafe_incremental_missing_record_keys = sorted(
+        set(
+            missing_record_keys
+        )
+        - set(
+            safe_incremental_missing_record_keys
+        )
+    )
+
+    expected_records_are_identical_compatible = (
         not missing_record_keys
         and not changed_record_keys
-        and mutable_record_differences_are_safe
+        and timestamp_protected_differences_are_safe_for_identical
+    )
+
+    expected_records_are_update_compatible = (
+        bool(
+            missing_record_keys
+        )
+        and not unsafe_incremental_missing_record_keys
+        and not changed_record_keys
+        and not extra_direct_record_keys
+        and local_header_exists
+        and bundle_is_newer
     )
 
     has_confirmed_local_conversation = (
@@ -964,7 +1082,14 @@ def compare_bundle_conversation(
         recommended_action = "import"
 
     elif (
-        expected_records_are_compatible
+        expected_records_are_update_compatible
+        and has_confirmed_local_conversation
+    ):
+        status = "update"
+        recommended_action = "update"
+
+    elif (
+        expected_records_are_identical_compatible
         and has_confirmed_local_conversation
     ):
         status = "identical"
@@ -1027,6 +1152,16 @@ def compare_bundle_conversation(
                 tolerated_changed_record_keys
             ),
 
+        "timestampProtectedChangedRecordCount":
+            len(
+                timestamp_protected_changed_record_keys
+            ),
+
+        "uiLayoutChangedRecordCount":
+            len(
+                ui_layout_changed_record_keys
+            ),
+
         "extraDirectRecordCount":
             len(
                 extra_direct_record_keys
@@ -1047,8 +1182,32 @@ def compare_bundle_conversation(
                 tolerated_changed_record_keys
             ),
 
+        "timestampProtectedChangedRecordKeys":
+            sorted(
+                timestamp_protected_changed_record_keys
+            ),
+
+        "uiLayoutChangedRecordKeys":
+            sorted(
+                ui_layout_changed_record_keys
+            ),
+
         "extraDirectRecordKeys":
             extra_direct_record_keys,
+
+        "safeIncrementalMissingRecordKeys":
+            sorted(
+                safe_incremental_missing_record_keys
+            ),
+
+        "unsafeIncrementalMissingRecordKeys":
+            unsafe_incremental_missing_record_keys,
+
+        "bundleIsNewer":
+            bundle_is_newer,
+
+        "localLastUpdatedAt":
+            local_last_updated_at,
 
         "createdAt":
             get_number(
@@ -1408,6 +1567,15 @@ def validate_bundle(
         == "new"
     )
 
+    update_count = sum(
+        1
+        for item in import_plan
+        if item[
+            "status"
+        ]
+        == "update"
+    )
+
     identical_count = sum(
         1
         for item in import_plan
@@ -1431,7 +1599,7 @@ def validate_bundle(
             True,
 
         "validationVersion":
-            7,
+            9,
 
         "validatedAt":
             utc_now_iso(),
@@ -1505,6 +1673,9 @@ def validate_bundle(
             "newCount":
                 new_count,
 
+            "updateCount":
+                update_count,
+
             "identicalCount":
                 identical_count,
 
@@ -1513,6 +1684,9 @@ def validate_bundle(
 
             "recommendedImportCount":
                 new_count,
+
+            "recommendedUpdateCount":
+                update_count,
 
             "recommendedSkipCount":
                 identical_count,

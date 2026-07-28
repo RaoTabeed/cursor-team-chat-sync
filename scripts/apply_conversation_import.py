@@ -1353,6 +1353,113 @@ def insert_bundle_record(
     return "inserted"
 
 
+def replace_bundle_record(
+    connection: sqlite3.Connection,
+    archive: zipfile.ZipFile,
+    record: dict[str, Any],
+) -> str:
+    """
+    Replace one existing mutable Cursor record with the verified cloud value.
+
+    This is used only for validator-approved incremental updates, currently
+    composerData:<composer-id>. Immutable bubble/checkpoint/content records
+    are never overwritten.
+    """
+    table_name = get_string(
+        record.get(
+            "tableName"
+        )
+    )
+
+    key = get_string(
+        record.get(
+            "key"
+        )
+    )
+
+    sqlite_type = get_string(
+        record.get(
+            "sqliteType"
+        )
+    )
+
+    if (
+        table_name is None
+        or key is None
+        or sqlite_type is None
+    ):
+        raise ValueError(
+            "A bundle record contains "
+            "incomplete SQLite metadata."
+        )
+
+    validate_table_name(
+        table_name
+    )
+
+    payload = read_payload(
+        archive,
+        record,
+    )
+
+    existing_row = fetch_existing_record(
+        connection,
+        table_name,
+        key,
+    )
+
+    if existing_row is None:
+        raise RuntimeError(
+            "The mutable destination record "
+            "disappeared before replacement: "
+            f"{table_name}:{key}"
+        )
+
+    if verify_existing_record(
+        existing_row,
+        sqlite_type,
+        payload,
+    ):
+        return "skipped-identical"
+
+    connection.execute(
+        f"""
+        UPDATE {table_name}
+        SET value = ?
+        WHERE key = ?
+        """,
+        (
+            sqlite_value_from_payload(
+                sqlite_type,
+                payload,
+            ),
+            key,
+        ),
+    )
+
+    replaced_row = fetch_existing_record(
+        connection,
+        table_name,
+        key,
+    )
+
+    if (
+        replaced_row is None
+        or not verify_existing_record(
+            replaced_row,
+            sqlite_type,
+            payload,
+        )
+    ):
+        raise RuntimeError(
+            "The mutable imported record failed "
+            "verification after replacement: "
+            f"{table_name}:{key}"
+        )
+
+    return "replaced"
+
+
 def load_json_item(
     connection: sqlite3.Connection,
     key: str,
@@ -1666,25 +1773,29 @@ def import_bundle_conversations(
     list[str],
     list[dict[str, Any]],
 ]:
-    status_by_composer_id = {
+    plan_by_composer_id = {
         str(
             item[
                 "composerId"
             ]
         ):
-        str(
-            item[
-                "status"
-            ]
-        )
+        item
         for item in validation_result[
             "conversations"
         ]
+        if isinstance(
+            item,
+            dict,
+        )
     }
 
     inserted_record_count = 0
+    replaced_record_count = 0
+    preserved_local_record_count = 0
     skipped_record_count = 0
+
     imported_conversation_count = 0
+    updated_conversation_count = 0
     skipped_conversation_count = 0
 
     imported_composer_ids: list[
@@ -1747,9 +1858,25 @@ def import_bundle_conversations(
                     "without composerId."
                 )
 
-            conversation_status = (
-                status_by_composer_id.get(
+            plan_entry = (
+                plan_by_composer_id.get(
                     composer_id
+                )
+            )
+
+            if not isinstance(
+                plan_entry,
+                dict,
+            ):
+                raise RuntimeError(
+                    "The validation plan is missing "
+                    "conversation: "
+                    f"{composer_id}"
+                )
+
+            conversation_status = str(
+                plan_entry.get(
+                    "status"
                 )
             )
 
@@ -1792,7 +1919,10 @@ def import_bundle_conversations(
 
             if (
                 conversation_status
-                != "new"
+                not in {
+                    "new",
+                    "update",
+                }
             ):
                 raise RuntimeError(
                     "The import contains a conversation "
@@ -1809,9 +1939,51 @@ def import_bundle_conversations(
                 list,
             ):
                 raise RuntimeError(
-                    "A new conversation contains "
+                    "A conversation contains "
                     "an invalid record list."
                 )
+
+            missing_record_keys = set(
+                str(
+                    value
+                )
+                for value in plan_entry.get(
+                    "missingRecordKeys",
+                    [],
+                )
+                if isinstance(
+                    value,
+                    str,
+                )
+            )
+
+            timestamp_protected_keys = set(
+                str(
+                    value
+                )
+                for value in plan_entry.get(
+                    "timestampProtectedChangedRecordKeys",
+                    [],
+                )
+                if isinstance(
+                    value,
+                    str,
+                )
+            )
+
+            ui_layout_keys = set(
+                str(
+                    value
+                )
+                for value in plan_entry.get(
+                    "uiLayoutChangedRecordKeys",
+                    [],
+                )
+                if isinstance(
+                    value,
+                    str,
+                )
+            )
 
             for record in records:
                 if not isinstance(
@@ -1819,17 +1991,67 @@ def import_bundle_conversations(
                     dict,
                 ):
                     raise RuntimeError(
-                        "A new conversation contains "
+                        "A conversation contains "
                         "an invalid SQLite record."
                     )
 
-                record_result = (
-                    insert_bundle_record(
-                        connection,
-                        archive,
-                        record,
+                table_name = get_string(
+                    record.get(
+                        "tableName"
                     )
                 )
+
+                key = get_string(
+                    record.get(
+                        "key"
+                    )
+                )
+
+                if (
+                    table_name is None
+                    or key is None
+                ):
+                    raise RuntimeError(
+                        "A conversation record is "
+                        "missing its table or key."
+                    )
+
+                location = (
+                    f"{table_name}:{key}"
+                )
+
+                if (
+                    conversation_status
+                    == "update"
+                    and location
+                    in ui_layout_keys
+                ):
+                    preserved_local_record_count += 1
+
+                    continue
+
+                if (
+                    conversation_status
+                    == "update"
+                    and location
+                    in timestamp_protected_keys
+                ):
+                    record_result = (
+                        replace_bundle_record(
+                            connection,
+                            archive,
+                            record,
+                        )
+                    )
+
+                else:
+                    record_result = (
+                        insert_bundle_record(
+                            connection,
+                            archive,
+                            record,
+                        )
+                    )
 
                 if (
                     record_result
@@ -1837,10 +2059,30 @@ def import_bundle_conversations(
                 ):
                     inserted_record_count += 1
 
+                elif (
+                    record_result
+                    == "replaced"
+                ):
+                    replaced_record_count += 1
+
                 else:
                     skipped_record_count += 1
 
-            imported_conversation_count += 1
+            if (
+                conversation_status
+                == "new"
+            ):
+                imported_conversation_count += 1
+
+            else:
+                if not missing_record_keys:
+                    raise RuntimeError(
+                        "An update plan did not contain "
+                        "any missing cloud records: "
+                        f"{composer_id}"
+                    )
+
+                updated_conversation_count += 1
 
     if global_headers_to_merge:
         merge_global_composer_headers(
@@ -1853,11 +2095,20 @@ def import_bundle_conversations(
             "importedConversationCount":
                 imported_conversation_count,
 
+            "updatedConversationCount":
+                updated_conversation_count,
+
             "skippedConversationCount":
                 skipped_conversation_count,
 
             "insertedRecordCount":
                 inserted_record_count,
+
+            "replacedRecordCount":
+                replaced_record_count,
+
+            "preservedLocalRecordCount":
+                preserved_local_record_count,
 
             "skippedRecordCount":
                 skipped_record_count,
@@ -1867,7 +2118,6 @@ def import_bundle_conversations(
         ),
         workspace_headers,
     )
-
 
 def choose_workspace_anchor(
     root_value: dict[str, Any],
@@ -2576,6 +2826,15 @@ def execute_import_job(
             ]
         )
 
+        final_update_count = int(
+            final_validation[
+                "summary"
+            ].get(
+                "updateCount",
+                0,
+            )
+        )
+
         final_conflict_count = int(
             final_validation[
                 "summary"
@@ -2589,6 +2848,13 @@ def execute_import_job(
                 "The imported database still reports "
                 f"{final_new_count} new conversation(s) "
                 "after import."
+            )
+
+        if final_update_count != 0:
+            raise RuntimeError(
+                "The imported database still reports "
+                f"{final_update_count} conversation "
+                "update(s) after import."
             )
 
         if final_conflict_count != 0:
@@ -2656,6 +2922,9 @@ def execute_import_job(
                         "identicalCount"
                     ]
                 ),
+
+            "finalUpdateCount":
+                final_update_count,
 
             "finalConflictCount":
                 final_conflict_count,

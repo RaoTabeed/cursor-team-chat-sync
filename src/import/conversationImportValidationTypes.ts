@@ -1,11 +1,14 @@
 export type ConversationImportStatus =
   | "new"
+  | "update"
   | "identical"
   | "conflict";
 
 export type ConversationImportAction =
   | "import"
+  | "update"
   | "skip"
+  | "preserve-local-and-repair-sidebar"
   | "review";
 
 export interface ConversationImportPlanEntry {
@@ -37,6 +40,15 @@ export interface ConversationImportPlanEntry {
   changedRecordCount:
     number;
 
+  toleratedChangedRecordCount:
+    number;
+
+  timestampProtectedChangedRecordCount:
+    number;
+
+  uiLayoutChangedRecordCount:
+    number;
+
   extraDirectRecordCount:
     number;
 
@@ -46,8 +58,29 @@ export interface ConversationImportPlanEntry {
   changedRecordKeys:
     string[];
 
+  toleratedChangedRecordKeys:
+    string[];
+
+  timestampProtectedChangedRecordKeys:
+    string[];
+
+  uiLayoutChangedRecordKeys:
+    string[];
+
   extraDirectRecordKeys:
     string[];
+
+  safeIncrementalMissingRecordKeys:
+    string[];
+
+  unsafeIncrementalMissingRecordKeys:
+    string[];
+
+  bundleIsNewer:
+    boolean;
+
+  localLastUpdatedAt:
+    number | null;
 
   createdAt:
     number | null;
@@ -115,6 +148,8 @@ export interface ConversationImportValidationResult {
 
     newCount: number;
 
+    updateCount: number;
+
     identicalCount:
       number;
 
@@ -122,6 +157,9 @@ export interface ConversationImportValidationResult {
       number;
 
     recommendedImportCount:
+      number;
+
+    recommendedUpdateCount:
       number;
 
     recommendedSkipCount:
